@@ -28,7 +28,7 @@ F_MM, FNUM, SUBJ_DIST_MM, PIX_UM = 55.0, 2.5, 1500.0, 3.76
 PX_PER_MM = signed_disparity_px(1.0, F_MM, FNUM, SUBJ_DIST_MM, PIX_UM)
 HORIZON_SECONDS = 2.0
 BIN_TO_FPS = {1: 15, 4: 60}
-N_SEEDS = 100
+N_SEEDS = 1000
 
 
 def fresh_policy(p):

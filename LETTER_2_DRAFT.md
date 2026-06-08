@@ -43,28 +43,30 @@ single-seed runs in this study showed misleading results (different
 seeds favoured different configurations); reporting now with 10-seed
 means and standard deviations is what changed the recommendation.
 
-Low-contrast static target (100 seeds, mean ± std of in-focus %, where
-in-focus means lens within 0.3 mm of target):
+Low-contrast static target (1000 seeds, mean ± std of in-focus %,
+where in-focus means lens within 0.3 mm of target). The mean
+standard error at n=1000 is ~0.5%, so each mean below is accurate to
+roughly one percentage point:
 
-| Configuration                                  | in-focus %  | trav (mm) |
-|------------------------------------------------|-------------|-----------|
-| A. baseline (stateless, 15 fps, single zone)   | 0 ± 0       | 5.80      |
-| B. + 4x4 binning (60 fps) only                 | 0 ± 0       | 23.80     |
-| C. + Kalman temporal prior                     | 36 ± 34     | 9.05      |
-| **D. + multi-zone confidence aggregation**     | **86 ± 16** | 2.35      |
-| E. + deadband + PID + CDAF fusion (V3 stack)   | 35 ± 44     | 1.72      |
+| Configuration                                  | in-focus %   | trav (mm) |
+|------------------------------------------------|--------------|-----------|
+| A. baseline (stateless, 15 fps, single zone)   | 0.0 ± 0      | 5.80      |
+| B. + 4x4 binning (60 fps) only                 | 0.0 ± 0      | 23.80     |
+| C. + Kalman temporal prior                     | 38.6 ± 35.1  | 9.42      |
+| **D. + multi-zone confidence aggregation**     | **86.0 ± 15.4** | 2.37   |
+| E. + deadband + PID + CDAF fusion (V3 stack)   | 35.9 ± 43.8  | 1.74      |
 
-High-contrast static target (same 100 seeds):
+High-contrast static target (same 1000 seeds):
 
-| Configuration                                  | in-focus %  | lock time   |
-|------------------------------------------------|-------------|-------------|
-| A. baseline                                    | **56 ± 48** | 0.08 s      |
-| C. + Kalman                                    | 90 ± 9      | 0.18 s      |
-| **D. + multi-zone**                            | **91 ± 3**  | 0.18 s      |
-| E. + V3                                        | 87 ± 24     | 0.14 s      |
+| Configuration                                  | in-focus %    | lock time   |
+|------------------------------------------------|---------------|-------------|
+| A. baseline                                    | **51.9 ± 48.3** | 0.08 s    |
+| C. + Kalman                                    | 87.9 ± 15.9   | 0.19 s      |
+| **D. + multi-zone**                            | **87.6 ± 16.3** | 0.19 s    |
+| E. + V3                                        | 82.4 ± 29.7   | 0.14 s      |
 
 I want to call out one specific number in the high-contrast table:
-**the baseline scores 56 ± 48 %**, meaning the current single-frame
+**the baseline scores 52 ± 48 %**, meaning the current single-frame
 PSR-threshold policy succeeds on roughly half the seeds and fails
 catastrophically on the other half, even on high-contrast scenes
 where it should succeed comfortably. This statistical signature
@@ -87,17 +89,17 @@ The four non-obvious findings from this matrix:
    and temporal prior must be paired.
 
 2. **Configuration D is the recommended target.** Binning + Kalman +
-   multi-zone produces 82 ± 16 % in-focus on low-contrast and 92 ± 1 %
-   on high-contrast. Critically, the standard deviation is small,
-   meaning the result is reliable rather than seed-lucky. The compute
-   cost is on the order of microseconds per frame on any modern
-   application-class processor.
+   multi-zone produces 86 ± 15 % in-focus on low-contrast and 88 ± 16 %
+   on high-contrast (over 1000 independent seeds, mean SEM ~0.5 %).
+   Compute cost is on the order of microseconds per frame on any
+   modern application-class processor.
 
-3. **Configuration C without multi-zone is unreliable.** It averages
-   33 % in-focus on low-contrast but with ±31 % standard deviation —
-   some scenes work cleanly, others fail completely. Multi-zone
-   aggregation reduces this variance from ±31 % to ±16 % while
-   raising the mean.
+3. **Configuration C without multi-zone is unreliable on low-contrast.**
+   It averages 39 % in-focus on low-contrast but with ±35 % standard
+   deviation — some scenes work cleanly, others fail completely. On
+   high-contrast scenes C and D are statistically equivalent (88 ± 16
+   vs 88 ± 16), so multi-zone is essentially free on easy scenes and
+   essential on hard ones — a dominant strategy.
 
 4. **The full V3 stack (config E) over-constrains low-contrast scenes
    while remaining the fastest on high-contrast.** Deadband + PID +
@@ -179,7 +181,7 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 内部实现的任何 claim,也不是要求你们采纳我的代码。它的存在是为了
 任何可能的技术对话都从同一套定义出发。
 
-报告基于 100 seed 平均的完整 lever-by-lever 实验
+报告基于 1000 seed 平均的完整 lever-by-lever 实验
 (`scripts/run_full_stack_stats.py`,`out/full_stack_metrics.png`)
 最重要的发现:**在低对比和高对比场景都可靠获胜的组合,是 sensor
 binning + Kalman 时间先验 + multi-zone 信任度聚合(配置 D)**。
