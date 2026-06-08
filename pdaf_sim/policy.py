@@ -191,6 +191,141 @@ class BehavioralPolicy:
 
 
 @dataclass
+class V3Policy:
+    """v3 stack: Temporal Kalman + deadband + PID lens drive +
+    PDAF/CDAF fusion + sticky lock.
+
+    Inputs per step:
+      disparity     -- PDAF-implied lens error (mm)
+      pdaf_conf     -- 0..1 confidence of the PDAF disparity
+      cdaf_score    -- contrast-detection sharpness (higher = sharper)
+      lens_pos      -- current lens position (mm)
+
+    Outputs:
+      Decision(lens_cmd, swept)
+
+    Notes
+    -----
+    * Deadband: if estimated remaining error is within deadband_mm,
+      don't move the lens. Kills the infinite-tiny-correction loop.
+    * PID: instead of snapping to target, command a PID-controlled
+      motion. Damps overshoot at high update rates.
+    * Fusion: scene-conditional weighting between PDAF (good far from
+      focus, weak near focus due to PSR drop) and CDAF (good near
+      focus, weak far from focus because gradient is flat). The
+      fused signal estimates "true" defocus more robustly than either
+      alone.
+    """
+    # decision thresholds
+    tau_sweep: float = 0.05
+    deadband_mm: float = 0.05
+    give_up_after_frames: int = 60
+    sweep_step: float = 0.2
+
+    # Kalman over (focus_pos, focus_vel)
+    process_var: float = 0.05
+    meas_var_base: float = 0.5
+
+    # PID on lens commanded position (acting on target - actual)
+    pid_kp: float = 0.8
+    pid_ki: float = 0.05
+    pid_kd: float = 0.1
+
+    # Fusion: CDAF weight grows as PDAF conf drops AND cdaf gradient
+    # is meaningful. Gated by minimum |gradient| to avoid following noise
+    # in low-contrast scenes where CDAF itself is unreliable.
+    cdaf_blend_max: float = 0.3
+    cdaf_grad_min: float = 1e-3        # below this, CDAF signal is noise
+    cdaf_step_mm: float = 0.1          # max nudge per frame from CDAF
+
+    _x: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
+    _P: np.ndarray = field(default_factory=lambda: np.eye(2) * 10.0)
+    _sweep_dir: int = 1
+    _low_conf_streak: int = 0
+    _pid_int: float = 0.0
+    _pid_prev_err: float = 0.0
+    _cdaf_prev: float | None = None
+    _cdaf_lens_prev: float = 0.0
+
+    def reset(self):
+        self._x = np.array([0.0, 0.0])
+        self._P = np.eye(2) * 10.0
+        self._sweep_dir = 1
+        self._low_conf_streak = 0
+        self._pid_int = 0.0
+        self._pid_prev_err = 0.0
+        self._cdaf_prev = None
+        self._cdaf_lens_prev = 0.0
+
+    def on_shutter(self):
+        pass  # preserve state, matches user's X2D T2 observation
+
+    def step(self, disparity: float, pdaf_conf: float,
+             cdaf_score: float, lens_pos: float) -> Decision:
+        # --- Estimate dCDAF / dlens since last step (sign tells gradient dir)
+        if self._cdaf_prev is not None and abs(lens_pos - self._cdaf_lens_prev) > 1e-6:
+            cdaf_grad = (cdaf_score - self._cdaf_prev) / (lens_pos - self._cdaf_lens_prev)
+        else:
+            cdaf_grad = 0.0
+        self._cdaf_prev = cdaf_score
+        self._cdaf_lens_prev = lens_pos
+
+        # --- Predict Kalman
+        F = np.array([[1.0, 1.0], [0.0, 1.0]])
+        Q = np.array([[self.process_var, 0.0], [0.0, self.process_var]])
+        self._x = F @ self._x
+        self._P = F @ self._P @ F.T + Q
+
+        if pdaf_conf < self.tau_sweep and abs(cdaf_grad) < 1e-4:
+            # Both signals unusable -> CDAF blind sweep (or give up)
+            self._low_conf_streak += 1
+            if self._low_conf_streak >= self.give_up_after_frames:
+                return Decision(lens_cmd=lens_pos, swept=False)
+            cmd = lens_pos + self._sweep_dir * self.sweep_step
+            self._sweep_dir *= -1
+            return Decision(lens_cmd=cmd, swept=True)
+        self._low_conf_streak = 0
+
+        # --- Update Kalman with PDAF measurement
+        z_pdaf = lens_pos - disparity
+        H = np.array([[1.0, 0.0]])
+        R = np.array([[self.meas_var_base / max(pdaf_conf, 1e-3)]])
+        y = z_pdaf - (H @ self._x)
+        S = H @ self._P @ H.T + R
+        K = self._P @ H.T @ np.linalg.inv(S)
+        self._x = self._x + (K @ y).flatten()
+        self._P = (np.eye(2) - K @ H) @ self._P
+
+        target_pdaf = float(self._x[0])
+
+        # --- Fuse with CDAF: nudge target by gradient ascent ONLY when
+        # CDAF gradient is meaningfully above noise floor. Otherwise the
+        # gradient sign is random and following it wastes lens travel.
+        cdaf_weight = min(self.cdaf_blend_max, max(0.0, 1.0 - pdaf_conf))
+        if abs(cdaf_grad) > self.cdaf_grad_min and cdaf_weight > 0:
+            target_cdaf = lens_pos + self.cdaf_step_mm * np.sign(cdaf_grad)
+            target = (1 - cdaf_weight) * target_pdaf + cdaf_weight * target_cdaf
+        else:
+            target = target_pdaf
+
+        # --- Deadband: don't bother moving if error is tiny
+        err = target - lens_pos
+        if abs(err) < self.deadband_mm:
+            return Decision(lens_cmd=lens_pos, swept=False)
+
+        # --- PID drive on the error
+        self._pid_int = 0.9 * self._pid_int + err   # leaky integrator
+        d_err = err - self._pid_prev_err
+        self._pid_prev_err = err
+        delta = (self.pid_kp * err
+                 + self.pid_ki * self._pid_int
+                 + self.pid_kd * d_err)
+        # Saturate per-step motion to avoid wild commands
+        delta = float(np.clip(delta, -1.5, 1.5))
+        return Decision(lens_cmd=lens_pos + delta, swept=False)
+
+
+@dataclass
 class CompositePolicy:
     """v2 policy fixing the three Layer-1 failure modes catalogued in FINDINGS.md:
 

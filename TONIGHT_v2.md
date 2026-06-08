@@ -117,6 +117,63 @@ likely impact:
 All three are firmware-only, zero-hardware. The first is essentially
 free engineering effort.
 
+## Day 2 — v3 stack (deadband + PID + PDAF/CDAF fusion)
+
+After Sonnet/Opus review tightened the lever-1 framing to a conditional
+claim, the user (via Sonnet) suggested adding four more techniques to
+the policy stack: deadband control, PID lens drive, spatial PDAF
+gradient, and object-detection-style subject persistence.
+
+First two implemented as `V3Policy` plus a CDAF score function. Last
+two deferred to v4 -- they require 2-D zone layout and a subject-motion
+model that the current 1-D strip abstraction doesn't accommodate
+without restructuring.
+
+`scripts/run_v3_comparison.py` runs Stateless / v1 / v3 head-to-head
+at 60 fps with 4x4 binning (since lever 1 is a precondition for any
+temporal-prior policy to function).
+
+| Metric                | low_c v1 | low_c v3 | high_c v1 | high_c v3 |
+|-----------------------|----------|----------|-----------|-----------|
+| sweeps                | 1        | 0        | 0         | 0         |
+| time to lock (s)      | 0.22     | 0.33     | 0.18      | 0.15      |
+| final error (mm)      | 0.30     | 0.22     | 0.20      | 0.26      |
+| lens travel (mm/2s)   | 2.7      | **1.9**  | 1.8       | 1.7       |
+
+Honest reading: v3 is not strictly better than v1. It buys 30% less
+lens motor travel (motor longevity) and eliminates the final sweep
+event entirely, in exchange for ~100 ms slower lock on low-contrast
+subjects. The deadband + PID combination prioritises mechanical
+quietness and stability over absolute speed -- the right trade for
+a still-photography body.
+
+Engineering note on the CDAF fusion: an early version of V3Policy used
+`0.5 * sign(cdaf_gradient)` as the fusion nudge, which produced random
+lens wander when the CDAF gradient itself was noise (in low-contrast
+scenes the gradient magnitude is comparable to its noise). Adding a
+`cdaf_grad_min` threshold below which CDAF input is ignored, and
+shrinking the per-frame nudge from 0.5 mm to 0.1 mm, fixed it. This
+is exactly the kind of failure mode any "fusion" algorithm has to
+handle and is worth documenting because it suggests the same care
+applies in a production firmware: CDAF should never override PDAF
+when CDAF itself is below its own confidence floor.
+
+Output: `out/v3_comparison.png`.
+
+## Deferred to v4
+
+- **Spatial PDAF gradient** across nearby zones for motion direction
+  prediction. Requires 2-D zone layout in `pdaf_sim` (currently a
+  single 1-D strip).
+- **Subject-motion model / object detection persistence**. A bounding
+  box predictor that survives brief occlusions and is robust to AF
+  area changes. Requires the simulator to have a "subject" object
+  with size and trajectory, not just a focus distance.
+
+Both are well-scoped 1-2 day additions individually, blocked on
+having the 2-D zone layout in place. That refactor is the natural
+next step when work resumes.
+
 ## Open work for tomorrow
 
 - **Calibrate PSR confidence model with real X2D data** (so T6 actually

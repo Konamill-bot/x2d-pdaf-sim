@@ -13,6 +13,22 @@ def _window(n: int) -> np.ndarray:
     return np.hanning(n).astype(np.float32)
 
 
+def cdaf_score(img: np.ndarray) -> float:
+    """Contrast-detection AF score: variance of Laplacian of the image.
+
+    Standard CDAF sharpness metric. Peaks at in-focus position, drops
+    monotonically as defocus increases. Used here as a second
+    independent signal to fuse with PDAF (which loses confidence near
+    focus precisely because L/R views become identical).
+    """
+    img = img.astype(np.float32)
+    # 3x3 Laplacian via numpy diff (cheap, no scipy needed for this).
+    lap = (-4 * img[1:-1, 1:-1]
+           + img[:-2, 1:-1] + img[2:, 1:-1]
+           + img[1:-1, :-2] + img[1:-1, 2:])
+    return float(np.var(lap))
+
+
 def estimate_disparity_multi_zone(L: np.ndarray, R: np.ndarray,
                                    max_disp_px: int = 32,
                                    n_zones: int = 3) -> tuple[float, float]:
