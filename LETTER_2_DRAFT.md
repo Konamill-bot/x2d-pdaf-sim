@@ -34,58 +34,75 @@ intended as a shared frame of reference so any technical discussion we
 might have starts from the same definitions.
 
 I want to lead with the most important finding from the full
-lever-by-lever experiment (`scripts/run_full_stack.py`,
-`out/full_stack.png`): **only one combination produces a clean win on
-the low-contrast target where the baseline fails completely**, and that
-combination is sensor binning paired with a confidence-weighted Kalman
-temporal prior. Each of the other levers I initially proposed turned
-out to provide either marginal benefit (high-contrast scenes) or net
-regression (low-contrast scenes) when measured honestly. I report
-this fully because pretending otherwise would waste your time.
+lever-by-lever experiment (`scripts/run_full_stack_stats.py`,
+`out/full_stack_metrics.png`), based on 10 independent seeds per
+configuration: **the combination that produces a reliable win across
+both low-contrast and high-contrast scenes is sensor binning + Kalman
+temporal prior + multi-zone confidence aggregation.** Earlier
+single-seed runs in this study showed misleading results (different
+seeds favoured different configurations); reporting now with 10-seed
+means and standard deviations is what changed the recommendation.
 
-The lever-by-lever results on a low-contrast static target are:
+Low-contrast static target (10 seeds, mean ± std of in-focus %, where
+in-focus means lens within 0.3 mm of target):
 
-| Configuration                                  | in-focus % | final err |
-|------------------------------------------------|------------|-----------|
-| A. baseline (stateless, 15 fps, single zone)   | 0%         | 2.50 mm   |
-| B. + 4x4 binning (60 fps) only                 | **0%**     | 2.50 mm   |
-| C. + Kalman temporal prior                     | **85%**    | **0.03 mm** |
-| D. + multi-zone confidence agreement           | 35%        | 0.37 mm   |
-| E. + deadband + PID + CDAF fusion (V3 stack)   | 0%         | 0.57 mm   |
+| Configuration                                  | in-focus %  | trav (mm) |
+|------------------------------------------------|-------------|-----------|
+| A. baseline (stateless, 15 fps, single zone)   | 0 ± 0       | 5.80      |
+| B. + 4x4 binning (60 fps) only                 | 0 ± 0       | 23.80     |
+| C. + Kalman temporal prior                     | 33 ± 31     | 11.85     |
+| **D. + multi-zone confidence aggregation**     | **82 ± 16** | 2.26      |
+| E. + deadband + PID + CDAF fusion (V3 stack)   | 18 ± 36     | 1.67      |
 
-The non-obvious findings:
+High-contrast static target (same 10 seeds):
+
+| Configuration                                  | in-focus % | lock time   |
+|------------------------------------------------|------------|-------------|
+| A. baseline                                    | 90 ± 30    | 0.00 s      |
+| C. + Kalman                                    | 92 ± 1     | 0.16 s      |
+| D. + multi-zone                                | 92 ± 1     | 0.16 s      |
+| E. + V3                                        | 93 ± 1     | 0.13 s      |
+
+The four non-obvious findings from this matrix:
 
 1. **AF-readout framerate alone (config B) does not help — it makes
    hunting worse.** Without a temporal prior to integrate measurements,
    raising the framerate from 15 to 60 fps simply quadruples the rate
-   at which low-confidence single-frame decisions are made. The
-   simulated lens accumulates four times the wasted motion (5.8 mm to
-   23.8 mm of travel in 2 seconds). The two levers must be paired.
+   at which low-confidence single-frame decisions are made. Lens
+   motor travel rises from 5.8 mm to 23.8 mm in 2 seconds. Binning
+   and temporal prior must be paired.
 
-2. **The Kalman temporal prior (config C) is the actual hero.** With
-   binning + Kalman, the policy reaches focus within 0.30 s on a target
-   the baseline never reaches. This is the headline result I would
-   stand behind. Compute cost is on the order of microseconds per
-   frame on any modern application-class processor.
+2. **Configuration D is the recommended target.** Binning + Kalman +
+   multi-zone produces 82 ± 16 % in-focus on low-contrast and 92 ± 1 %
+   on high-contrast. Critically, the standard deviation is small,
+   meaning the result is reliable rather than seed-lucky. The compute
+   cost is on the order of microseconds per frame on any modern
+   application-class processor.
 
-3. **Multi-zone confidence aggregation (config D) regresses
-   performance on low-contrast scenes.** When every zone sees only
-   noise, the inter-zone median is also noise — there is no consensus
-   to extract. Multi-zone helps on aliased signals (periodic patterns)
-   but should be applied conditionally, not unconditionally.
+3. **Configuration C without multi-zone is unreliable.** It averages
+   33 % in-focus on low-contrast but with ±31 % standard deviation —
+   some scenes work cleanly, others fail completely. Multi-zone
+   aggregation reduces this variance from ±31 % to ±16 % while
+   raising the mean.
 
-4. **The full V3 stack (config E) over-constrains the low-contrast
-   case.** Deadband + PID + CDAF fusion improve mechanical smoothness
-   and reduce lens motor travel by ~30%, but on featureless subjects
-   they prevent the lens from reaching focus at all. They are
-   appropriate for high-contrast subjects where lock is already
-   achievable; they are inappropriate as a default for low-contrast.
+4. **The full V3 stack (config E) over-constrains low-contrast scenes
+   while remaining the fastest on high-contrast.** Deadband + PID +
+   CDAF fusion improve mechanical smoothness and reduce lens motor
+   travel further, but on featureless subjects they prevent the lens
+   from reaching focus reliably (18 ± 36 %). They are appropriate as
+   a *user-selectable* mode for known-good lighting / textured
+   subjects, not as a universal default.
 
 The two conditional caveats from the first lever still apply: ISP
 scheduling load and internal bus bandwidth between sensor and SoC are
-factors only Hasselblad can measure, so even configuration C is
-stated as *if* the AF loop can be driven at 60 fps via PDAF channel
-configuration, *then* the result above holds.
+factors only Hasselblad can measure, so configuration D is stated as
+*if* the AF loop can be driven at 60 fps via PDAF channel
+configuration, *then* the result above holds. The X2D's sensor is a
+Sony IMX461 whose datasheet explicitly documents support for vertical
+subsampling and horizontal pixel binning for high-speed 12-bit output;
+the bandwidth required for 4x4-binned 60 fps PDAF readout is
+comparable to the full 100 MP readout already sustained at the
+shutter event, suggesting the sensor side is not the constraint.
 
 These observations are anchored by direct comparison with my own Sony
 A7 IV (which on an all-white wall produces a single ~0.7 second hunt
@@ -100,7 +117,7 @@ solve the failure modes I infer from my observations — in particular
 a near-focus AF failure consistent with PDAF correlation-peak
 broadening at zero defocus, and stochastic same-scene behaviour
 consistent with a stateless single-frame decision policy. The
-binning + Kalman combination above (configuration C) has independent
+binning + Kalman + multi-zone combination above (configuration D) has independent
 value on the X2D 100C — it would address those firmware-level failure
 modes whether or not LiDAR is present.
 
@@ -148,12 +165,12 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 内部实现的任何 claim,也不是要求你们采纳我的代码。它的存在是为了
 任何可能的技术对话都从同一套定义出发。
 
-先报告完整 lever-by-lever 实验(`scripts/run_full_stack.py`,
-`out/full_stack.png`)的最重要发现:**在低对比目标(基线完全失败的
-场景)上,只有一个组合产生 clean win**,那就是 sensor binning 配
-confidence-weighted Kalman 时间先验。其他每个 lever 单独诚实测量
-后,要么提供 marginal benefit(高对比场景),要么产生 net 退步
-(低对比场景)。完整报告以避免浪费时间。
+报告基于 10 seed 平均的完整 lever-by-lever 实验
+(`scripts/run_full_stack_stats.py`,`out/full_stack_metrics.png`)
+最重要的发现:**在低对比和高对比场景都可靠获胜的组合,是 sensor
+binning + Kalman 时间先验 + multi-zone 信任度聚合**。先前单 seed
+跑出来的结果会随机倾向不同 config,改用 10 seed 平均后,真正稳定
+胜出的是配置 D。
 
 低对比静态目标的 lever 矩阵:
 
