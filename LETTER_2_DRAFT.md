@@ -133,7 +133,8 @@ The four non-obvious findings from this matrix:
    while remaining the fastest on high-contrast.** Deadband + PID +
    CDAF fusion improve mechanical smoothness and reduce lens motor
    travel further, but on featureless subjects they prevent the lens
-   from reaching focus reliably (18 ± 36 %). They are appropriate as
+   from reaching focus reliably (36 ± 44 %, with very high variance).
+   They are appropriate as
    a *user-selectable* mode for known-good lighting / textured
    subjects, not as a universal default.
 
@@ -314,7 +315,7 @@ mean 的 standard error 约 0.5 个百分点):
 
 4. **完整 V3 stack(配置 E)在低对比上过度约束,但在高对比上锁
    最快**。Deadband + PID + CDAF fusion 改进机械平滑度,但在无
-   特征主体上无法可靠对焦(18 ± 36 %)。适合作为已知好光线 / 有
+   特征主体上无法可靠对焦(36 ± 44 %,变异度极高)。适合作为已知好光线 / 有
    纹理主体的 *user-selectable* 模式,不是 universal default。
 
 我想特别指出高对比表里的一个数字:**baseline 评分是 52 ± 48 %**,
