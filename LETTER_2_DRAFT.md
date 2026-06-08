@@ -33,63 +33,59 @@ implementation, and it is not a request that you adopt my code. It is
 intended as a shared frame of reference so any technical discussion we
 might have starts from the same definitions.
 
-The behavioural observations and the simulated improvements together
-point at three firmware-level changes that appear to substantially
-close the AF performance gap between the X2D 100C and current peer
-mirrorless bodies, without requiring any hardware change:
+I want to lead with the most important finding from the full
+lever-by-lever experiment (`scripts/run_full_stack.py`,
+`out/full_stack.png`): **only one combination produces a clean win on
+the low-contrast target where the baseline fails completely**, and that
+combination is sensor binning paired with a confidence-weighted Kalman
+temporal prior. Each of the other levers I initially proposed turned
+out to provide either marginal benefit (high-contrast scenes) or net
+regression (low-contrast scenes) when measured honestly. I report
+this fully because pretending otherwise would waste your time.
 
-1. **AF decision-loop framerate (conditional claim).** Modern
-   on-sensor PDAF uses a readout channel architecturally distinct from
-   the imaging pixel readout — PDAF pixels are typically excluded from
-   the imaging-pixel binning that drives live-view, and exposed through
-   a separate readout path whose rate is a configuration choice. The
-   X2D's 5.76 M-dot EVF and 2.36 M-dot rear LCD establish that the
-   sensor sustains high-framerate subsampled output during live view.
+The lever-by-lever results on a low-contrast static target are:
 
-   I want to be careful here: live-view EVF throughput does not, on
-   its own, prove that the AF pipeline (sensor → PDAF readout → ISP
-   scheduling → decision logic → lens motor command) can also be
-   driven at the same rate. ISP scheduling load and internal bus
-   bandwidth between the sensor and SoC are factors only Hasselblad
-   can measure internally. What the EVF demonstrates is that the
-   *sensor* side is not the bottleneck; the remaining question is
-   whether ISP scheduling permits a faster AF loop, and that is a
-   firmware-level investigation rather than a hardware change.
+| Configuration                                  | in-focus % | final err |
+|------------------------------------------------|------------|-----------|
+| A. baseline (stateless, 15 fps, single zone)   | 0%         | 2.50 mm   |
+| B. + 4x4 binning (60 fps) only                 | **0%**     | 2.50 mm   |
+| C. + Kalman temporal prior                     | **85%**    | **0.03 mm** |
+| D. + multi-zone confidence agreement           | 35%        | 0.37 mm   |
+| E. + deadband + PID + CDAF fusion (V3 stack)   | 0%         | 0.57 mm   |
 
-   The simulation result is therefore conditional in form: *if* AF
-   decision-loop framerate can be raised from approximately 15 fps
-   to 60 fps, *then* hunting sweeps drop from 30 to 0 on a
-   low-contrast static target and lock time falls to 0.18 seconds.
-   Whether the antecedent holds in the X2D pipeline is exactly the
-   question I am unable to answer from outside the camera.
+The non-obvious findings:
 
-2. **Temporal prior on PDAF measurements.** Replacing single-frame
-   PSR thresholding with a confidence-weighted Kalman filter over
-   lens position reduces simulated hunting sweeps by 63 percent on a
-   low-contrast static target at 15 fps. The compute cost is on the
-   order of microseconds per frame on any modern application-class
-   processor, independent of sensor readout.
+1. **AF-readout framerate alone (config B) does not help — it makes
+   hunting worse.** Without a temporal prior to integrate measurements,
+   raising the framerate from 15 to 60 fps simply quadruples the rate
+   at which low-confidence single-frame decisions are made. The
+   simulated lens accumulates four times the wasted motion (5.8 mm to
+   23.8 mm of travel in 2 seconds). The two levers must be paired.
 
-3. **Multi-zone confidence agreement.** Querying several PDAF zones
-   in parallel and weighting confidence by inter-zone agreement
-   correctly suppresses false peaks on aliased signals (periodic
-   patterns) and improves robustness on subjects with small motion.
+2. **The Kalman temporal prior (config C) is the actual hero.** With
+   binning + Kalman, the policy reaches focus within 0.30 s on a target
+   the baseline never reaches. This is the headline result I would
+   stand behind. Compute cost is on the order of microseconds per
+   frame on any modern application-class processor.
 
-The combination of all three produces, in simulation, a lock time of
-approximately 0.22 seconds on a low-contrast target where the
-simulated 15 fps baseline does not lock within the two-second
-observation window. The repository's `out/stacked_comparison.png` is
-the headline figure.
+3. **Multi-zone confidence aggregation (config D) regresses
+   performance on low-contrast scenes.** When every zone sees only
+   noise, the inter-zone median is also noise — there is no consensus
+   to extract. Multi-zone helps on aliased signals (periodic patterns)
+   but should be applied conditionally, not unconditionally.
 
-A fourth experiment (v3) stacks deadband control, PID lens drive, and
-PDAF/CDAF fusion on top of the three above. The result is honestly
-mixed: v3 reduces lens motor travel by roughly 30 percent and
-eliminates the residual sweep entirely, in exchange for about 100 ms
-slower lock on low-contrast subjects. I include it in the repository
-because the trade-off itself is informative — it suggests the
-firmware design choice between "fastest possible lock" and "smoothest
-mechanical behaviour with longest motor life" is real, and that there
-may be value in exposing this as a user preference.
+4. **The full V3 stack (config E) over-constrains the low-contrast
+   case.** Deadband + PID + CDAF fusion improve mechanical smoothness
+   and reduce lens motor travel by ~30%, but on featureless subjects
+   they prevent the lens from reaching focus at all. They are
+   appropriate for high-contrast subjects where lock is already
+   achievable; they are inappropriate as a default for low-contrast.
+
+The two conditional caveats from the first lever still apply: ISP
+scheduling load and internal bus bandwidth between sensor and SoC are
+factors only Hasselblad can measure, so even configuration C is
+stated as *if* the AF loop can be driven at 60 fps via PDAF channel
+configuration, *then* the result above holds.
 
 These observations are anchored by direct comparison with my own Sony
 A7 IV (which on an all-white wall produces a single ~0.7 second hunt
@@ -104,8 +100,9 @@ solve the failure modes I infer from my observations — in particular
 a near-focus AF failure consistent with PDAF correlation-peak
 broadening at zero defocus, and stochastic same-scene behaviour
 consistent with a stateless single-frame decision policy. The
-firmware-level levers above appear to have independent value on the
-X2D 100C.
+binning + Kalman combination above (configuration C) has independent
+value on the X2D 100C — it would address those firmware-level failure
+modes whether or not LiDAR is present.
 
 My question remains the same as in Letter 1, only more specific:
 
@@ -151,27 +148,47 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 内部实现的任何 claim,也不是要求你们采纳我的代码。它的存在是为了
 任何可能的技术对话都从同一套定义出发。
 
-行为观察 + 仿真改进共同指向三个 firmware-level 改动,似乎能在不需要
-任何硬件变更的前提下,显著缩小 X2D 100C 与当前同类无反相机之间的
-AF 性能差距:
+先报告完整 lever-by-lever 实验(`scripts/run_full_stack.py`,
+`out/full_stack.png`)的最重要发现:**在低对比目标(基线完全失败的
+场景)上,只有一个组合产生 clean win**,那就是 sensor binning 配
+confidence-weighted Kalman 时间先验。其他每个 lever 单独诚实测量
+后,要么提供 marginal benefit(高对比场景),要么产生 net 退步
+(低对比场景)。完整报告以避免浪费时间。
 
-1. **半按时的 AF readout binning**。X2D 的 BSI 传感器几乎肯定原生
-   支持 binned readout。半按 AF 时切到 4x4 binning(拍摄时切回 full
-   readout)将有效 AF 帧率从约 15 fps 提升到 60 fps。仿真中,仅此
-   一项就把低对比目标上的 hunting sweep 从 30 次降到 0 次,锁焦时
-   间 0.18 秒。
+低对比静态目标的 lever 矩阵:
 
-2. **PDAF 测量的时间先验**。用 confidence-weighted Kalman filter
-   替换单帧 PSR 阈值,在低对比场景下仿真 hunting sweep 减少 63%。
-   计算开销在任何 Cortex-A class CPU 上都是微秒量级,跟传感器读出
-   pipeline 无关。
+| 配置                                            | in-focus % | final err |
+|-------------------------------------------------|------------|-----------|
+| A. baseline(stateless, 15 fps, 单 zone)        | 0%         | 2.50 mm   |
+| B. + 4x4 binning(60 fps)单独                    | **0%**     | 2.50 mm   |
+| C. + Kalman 时间先验                             | **85%**    | **0.03 mm** |
+| D. + multi-zone 信任度一致性                     | 35%        | 0.37 mm   |
+| E. + deadband + PID + CDAF fusion(V3 stack)    | 0%         | 0.57 mm   |
 
-3. **Multi-zone confidence 一致性**。并行查询多个 PDAF zones,用
-   zone 间一致性加权 confidence,能正确压制周期信号的假峰值,并
-   改善小幅运动主体的鲁棒性。
+非显然 findings:
 
-三者组合,仿真上在低对比目标(当前行为 baseline 永远无法锁住)上
-锁焦时间约 0.22 秒。仓库里的 `out/stacked_comparison.png` 是头图。
+1. **AF 读出帧率单独提高(配置 B)无效,甚至更糟**。没有时间先验
+   去积分测量,15 → 60 fps 只是把单帧低置信度决策的频率翻 4 倍。
+   镜头无效行程从 5.8mm 涨到 23.8mm。两个 lever 必须配对。
+
+2. **Kalman 时间先验(配置 C)才是真正的 hero**。binning + Kalman
+   在 2.5mm 目标上 0.30s 内锁焦,baseline 永远到不了。这是我能站住
+   脚的 headline 结果。计算开销在现代 application-class processor
+   上是微秒级。
+
+3. **Multi-zone confidence aggregation(配置 D)在低对比场景退步**。
+   当每个 zone 都看到 noise 时,zone 间 median 也是 noise — 没有
+   共识可提取。multi-zone 对周期 aliased 信号有效,应**条件性**用,
+   不是无条件用。
+
+4. **完整 V3 stack(配置 E)在低对比上过度约束**。Deadband + PID +
+   CDAF fusion 改进机械平滑度,减少镜头马达行程 ~30%,但在无特征
+   主体上会让镜头根本到不了焦。它们适合高对比主体(已经能锁的
+   情况下),不适合作为低对比的 default。
+
+第一个 lever 的两个 conditional caveat 仍然适用:ISP 排程和 sensor
+到 SoC 的内部 bus 带宽是 Hasselblad 内部才能测的,所以即使配置 C
+也是 *if* AF loop 能跑到 60 fps,*then* 上述结果成立。
 
 这些观察以我自己的 Sony A7 IV 直接对比锚定(全白墙场景上 ~0.7 秒
 单次 hunt 后明确失败指示),以及 Fujifilm 从 GFX 100S 到 100S II
@@ -180,8 +197,9 @@ Integration 称之为 "improved predictive AF algorithm")。
 
 我知道 X2D II 100C 用 LiDAR 解决 AF 问题。LiDAR 提供测距,是有意义
 的硬件改进;但它并不解决我识别的失败模式(特别是近焦点 PSR
-confidence 下降和无状态单帧决策策略)。上述 firmware-level lever
-似乎有独立价值,X2D 100C 能从中获益,无需购买 X2D II。
+confidence 下降和无状态单帧决策策略)。上述 binning + Kalman 组合
+(配置 C)在 X2D 100C 上有独立价值 — 无论 LiDAR 在不在,它都能解决
+这些 firmware-level 失败模式。
 
 我的问题跟 Letter 1 一样,只是更具体:
 
