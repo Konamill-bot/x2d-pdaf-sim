@@ -160,7 +160,47 @@ when CDAF itself is below its own confidence floor.
 
 Output: `out/v3_comparison.png`.
 
-## Deferred to v4
+## Day 2 — v4 stack: 2D zone grid + bounding-box tracker
+
+A new `pdaf_sim/scene2d.py` adds a 2-D scene (192x256) with a moving
+textured subject on a low-contrast background, optional occlusion.
+`pdaf_sim/policy2d.py::V4Policy` reads a grid of 15 PDAF zones
+(5 columns x 3 rows), maintains a 4-D Kalman state over subject
+(x, y, dx, dy) in addition to the existing focus Kalman, and
+continues driving the lens from the predicted subject position when
+all zones report low confidence (occlusion).
+
+`scripts/run_v4_tracking.py` runs a 3-second scenario: a textured
+subject crosses the frame left-to-right at constant velocity, with
+a 0.33 s occlusion mid-traverse.
+
+Comparison vs v1 (1-D Kalman over the centre zone only):
+
+| Metric                              | v1     | v4    |
+|-------------------------------------|--------|-------|
+| in-focus % (err < 0.3 mm)           | 2.8    | 64.4  |
+| std of lens position after settle   | 4.08   | 0.22  |
+| max focus error                     | 24.5   | 1.0   |
+| catastrophic events (err > 1 mm)    | 169    | 0     |
+| mean error during occlusion         | 11.71  | 0.30  |
+
+Caveat to read this honestly: v1 was never designed for a moving
+subject (TemporalPolicy assumes the AF zone consistently sees the
+subject). When the subject leaves the centre zone, v1's Kalman starts
+absorbing background noise as if it were measurement data, and the
+estimate drifts unboundedly because I did not put a saturation on the
+commanded position. A real camera firmware would bound this. So the
+"v1 vs v4" gap shown is partially exaggerated by v1's missing safety
+net -- but the architectural point stands: v1 only sees one zone, v4
+sees the whole frame, and that gap is real regardless of saturation.
+
+Output: `out/v4_tracking.png` (the green line at 2.5mm is v4; the
+blue line wandering to 25mm is v1).
+
+Determinism fix: `dualpixel.render_lr` now accepts an `rng` argument
+so noise is reproducible. Without this, plots changed between runs.
+
+## Deferred to v5
 
 - **Spatial PDAF gradient** across nearby zones for motion direction
   prediction. Requires 2-D zone layout in `pdaf_sim` (currently a

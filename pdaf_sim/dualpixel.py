@@ -19,7 +19,8 @@ def _bin_2d(img: np.ndarray, factor: int) -> np.ndarray:
 def render_lr(sharp: np.ndarray, defocus_mm: float, f_mm: float, fnum: float,
               subject_dist_mm: float, pixel_pitch_um: float,
               noise_sigma: float = 0.005,
-              bin_factor: int = 1) -> tuple[np.ndarray, np.ndarray]:
+              bin_factor: int = 1,
+              rng: np.random.Generator | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Return (left_view, right_view) for the given lens-position error.
 
     bin_factor > 1 simulates sensor binning during AF readout. Real cameras
@@ -40,8 +41,9 @@ def render_lr(sharp: np.ndarray, defocus_mm: float, f_mm: float, fnum: float,
     if noise_sigma > 0:
         # Binning averages noise -> sigma scales by 1/factor.
         eff_sigma = noise_sigma / max(1, bin_factor)
-        L = L + np.random.normal(0, eff_sigma, L.shape).astype(np.float32)
-        R = R + np.random.normal(0, eff_sigma, R.shape).astype(np.float32)
+        _rng = rng if rng is not None else np.random.default_rng()
+        L = L + _rng.normal(0, eff_sigma, L.shape).astype(np.float32)
+        R = R + _rng.normal(0, eff_sigma, R.shape).astype(np.float32)
     if bin_factor > 1:
         L = _bin_2d(L, bin_factor)
         R = _bin_2d(R, bin_factor)
