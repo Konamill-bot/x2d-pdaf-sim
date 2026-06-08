@@ -34,6 +34,17 @@ AF-C on the X2D 100C. While that review is in progress, I want to share
 follow-up technical work I have completed independently, in the spirit
 of being a useful interlocutor rather than only an asker.
 
+Before the technical content, one thing I want to be clear about. The
+X2D 100C continues to produce images I could not make with any other
+camera. The HNCS rendering at base ISO, the dynamic range I get in
+mixed light, the mechanical feel of the XCD 55V focus ring, the
+quietness of the leaf shutter — none of these are in question for me.
+This letter is not a complaint about a camera I regret buying. It is
+precisely because the X2D earns its place in everything else that the
+AF behaviour stands out — it is the one part of the experience that
+does not match the rest. That is why I am willing to spend my own
+time on it, and why I think it is worth your time too.
+
 In the days following my first letter, I conducted systematic direct
 observation of my X2D 100C (firmware 4.2.0, XCD 2,5/55V), built an
 open-source simulation testbench for PDAF autofocus decision policies,
@@ -224,6 +235,14 @@ Public technical notes:
 
 感谢你们对我上一封 AF-C 信件的迅速回应。在你们评估期间,我想分享
 我独立完成的后续技术工作 —— 作为一个有用的对话者,而不只是请求者。
+
+在技术内容之前,我想先说清楚一件事。X2D 100C 仍然在为我产生其他
+任何相机都无法做出的影像。base ISO 下的 HNCS 渲染、混合光线下我能
+拿到的动态范围、XCD 55V 对焦环的机械手感、leaf shutter 的安静 —
+这些对我来说都不是问题。这封信不是关于一台我后悔购买的相机。**正
+是因为 X2D 在其他一切上都对得起它的位置**,AF 行为才显得突出 —
+它是整个体验里唯一跟其他部分不匹配的一块。这就是为什么我愿意把自己
+的时间投入进去,也是为什么我认为这件事值得你们花时间。
 
 第一封信之后的几天里,我系统地直接观察了自己的 X2D 100C(固件 4.2.0,
 XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbench,
