@@ -161,7 +161,8 @@ def main():
                   f"{f'{sw_m:.0f}+/-{sw_s:.0f}':>10}")
 
     # ---------- plot 1: bar chart with error bars ----------
-    fig, axes = plt.subplots(1, len(scenes), figsize=(12, 5), sharey=True)
+    plt.rcParams.update({'font.size': 12})
+    fig, axes = plt.subplots(1, len(scenes), figsize=(16, 7), sharey=True)
     config_names = [label for label, _ in configs]
     colors = ['C3', 'C1', 'C0', 'C4', 'C2']
     for ax, scene in zip(axes, scenes):
@@ -171,48 +172,51 @@ def main():
             vals = np.array([r['in_focus_pct'] for r in results[scene][label]])
             means.append(np.mean(vals))
             stds.append(np.std(vals))
-        bars = ax.bar(config_names, means, yerr=stds, capsize=4,
-                      color=colors, alpha=0.85, edgecolor='black')
-        ax.set_title(scene, fontsize=12)
-        ax.set_ylabel('in-focus % (err < 0.3 mm)')
-        ax.set_ylim(0, 105)
+        bars = ax.bar(config_names, means, yerr=stds, capsize=6,
+                      color=colors, alpha=0.85, edgecolor='black', linewidth=1.2)
+        ax.set_title(scene, fontsize=14, fontweight='bold')
+        ax.set_ylabel('in-focus % (err < 0.3 mm)', fontsize=12)
+        ax.set_ylim(0, 110)
         ax.grid(True, axis='y', alpha=0.3)
         for tick in ax.get_xticklabels():
-            tick.set_rotation(20)
+            tick.set_rotation(15)
             tick.set_horizontalalignment('right')
+            tick.set_fontsize(11)
         for bar, m, s in zip(bars, means, stds):
             ax.text(bar.get_x() + bar.get_width() / 2, m + s + 2,
-                    f'{m:.0f}±{s:.0f}', ha='center', va='bottom', fontsize=9)
+                    f'{m:.0f}±{s:.0f}', ha='center', va='bottom',
+                    fontsize=12, fontweight='bold')
     fig.suptitle(f'Lever-by-lever in-focus performance ({N_SEEDS} seeds, mean ± std)',
-                 fontsize=12)
+                 fontsize=15, fontweight='bold')
     fig.tight_layout()
     out1 = os.path.join('out', 'full_stack_metrics.png')
-    fig.savefig(out1, dpi=130)
+    fig.savefig(out1, dpi=200, bbox_inches='tight')
     print(f"\nSaved -> {out1}")
 
     # ---------- plot 2: representative trajectories (seed 0) ----------
-    fig, axes = plt.subplots(len(scenes), 1, figsize=(11, 4*len(scenes)),
+    fig, axes = plt.subplots(len(scenes), 1, figsize=(14, 5*len(scenes)),
                              sharex=True)
     if len(scenes) == 1:
         axes = [axes]
     for ax, scene in zip(axes, scenes):
-        ax.axhline(2.5, color='k', linestyle='--', alpha=0.5, label='truth = 2.5 mm')
+        ax.axhline(2.5, color='k', linestyle='--', alpha=0.5,
+                   linewidth=2, label='truth = 2.5 mm')
         for (label, _), c in zip(configs, colors):
             r = results[scene][label][0]
             tf_str = (f'lock {r["t_focus_s"]:.2f}s' if not np.isnan(r["t_focus_s"])
                       else 'no lock')
-            ax.plot(r['t'], r['cmds'], color=c, linewidth=1.6, alpha=0.9,
+            ax.plot(r['t'], r['cmds'], color=c, linewidth=2.0, alpha=0.9,
                     label=f"{label}  ({tf_str}, err {r['final_err_mm']:.2f}mm)")
-        ax.set_title(scene, fontsize=11)
-        ax.set_ylabel('lens position (mm)')
-        ax.legend(loc='best', fontsize=9)
+        ax.set_title(scene, fontsize=14, fontweight='bold')
+        ax.set_ylabel('lens position (mm)', fontsize=12)
+        ax.legend(loc='best', fontsize=11, framealpha=0.95)
         ax.grid(True, alpha=0.3)
-    axes[-1].set_xlabel('time (s)')
+    axes[-1].set_xlabel('time (s)', fontsize=12)
     fig.suptitle('Representative trajectory (seed 0) for each lever stack',
-                 fontsize=12)
+                 fontsize=15, fontweight='bold')
     fig.tight_layout()
     out2 = os.path.join('out', 'full_stack_trajectory.png')
-    fig.savefig(out2, dpi=130)
+    fig.savefig(out2, dpi=200, bbox_inches='tight')
     print(f"Saved -> {out2}")
 
 
