@@ -120,6 +120,23 @@ the bandwidth required for 4x4-binned 60 fps PDAF readout is
 comparable to the full 100 MP readout already sustained at the
 shutter event, suggesting the sensor side is not the constraint.
 
+**One epistemic limit I want to acknowledge explicitly.** This study
+assumes a baseline algorithm whose simulated output behaviour matches
+what I observe on my X2D — hunting in low contrast, stochastic
+same-scene response, near-focus failure. That match is consistent
+with the baseline genuinely lacking the techniques in configuration D,
+but it is also consistent with the X2D's firmware already
+incorporating some or all of them and being limited elsewhere
+(tuning, ISP scheduling, motor driver). The firmware is encrypted
+and I cannot verify which is true from outside. The simulation's
+purpose is therefore to demonstrate that the techniques are
+*algorithmically feasible* on a 294-zone PDAF architecture, not to
+claim knowledge of what is or is not in Hasselblad's internal
+codebase. Either way the question I am asking is meaningful: if the
+techniques are not yet present, configuration D suggests they would
+help; if they are present but the result is still the observed
+hunting, that itself is information you alone can interpret.
+
 These observations are anchored by direct comparison with my own Sony
 A7 IV (which on an all-white wall produces a single ~0.7 second hunt
 followed by a clear failure indicator), and by published evidence that
@@ -180,6 +197,16 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 **自包含**的研究,使用合成场景和薄透镜光学模型。它不是对 Hasselblad
 内部实现的任何 claim,也不是要求你们采纳我的代码。它的存在是为了
 任何可能的技术对话都从同一套定义出发。
+
+**先讲一个认知限制(epistemic limit)**:这个研究假设的 baseline 算法
+其仿真输出行为(hunting、随机性、近焦点失败)跟我在 X2D 上观察到的
+吻合。这个吻合**既可能**意味着 X2D 固件确实缺少 configuration D 里
+的技术,**也可能**意味着 X2D 已经有这些技术但被别处限制(参数调校、
+ISP 排程、马达驱动)。固件加密,从外部无法验证哪个为真。仿真的目的
+是证明这些技术在 294-zone PDAF 架构上**算法上可行**,不是 claim
+知道 Hasselblad 内部代码状态。无论哪种情况,问题都是 meaningful 的:
+如果技术还没用,configuration D 提示它们会有帮助;如果已经用了但
+结果仍是观察到的 hunting,那本身就是只有你们能解读的信息。
 
 报告基于 1000 seed 平均的完整 lever-by-lever 实验
 (`scripts/run_full_stack_stats.py`,`out/full_stack_metrics.png`)
