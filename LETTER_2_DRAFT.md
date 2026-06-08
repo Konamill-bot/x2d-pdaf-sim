@@ -154,6 +154,27 @@ binning + Kalman + multi-zone combination above (configuration D) has independen
 value on the X2D 100C — it would address those firmware-level failure
 modes whether or not LiDAR is present.
 
+A note connecting this back to my Letter 1 AF-C question. The
+components in configuration D — a Kalman temporal prior over focus
+position, multi-zone confidence aggregation, and a higher AF
+decision-loop framerate — are the same building blocks any
+continuous-AF (AF-C) implementation requires. The repository also
+contains a `V4Policy` (in `pdaf_sim/policy2d.py`) that adds a 2-D
+subject bounding-box Kalman tracker on top of these, demonstrating
+that subject persistence across brief occlusions and zone-to-zone
+subject motion are likewise tractable on the simulated 294-zone PDAF
+architecture. I am not suggesting these specific algorithms are what
+should ship; only that the algorithmic question "can AF-C be done on
+X2D-class hardware" appears to be answered affirmatively at the
+software layer. If your eventual response to Letter 1 is that AF-C
+is hardware-limited, this work would refocus the question on
+*which* hardware layer specifically constrains it (ISP scheduling,
+lens motor driver loop, bus bandwidth) so that the conversation
+becomes specific rather than categorical. If your response is that
+AF-C is a policy decision rather than a hardware ceiling, then the
+two letters together describe one consistent technical proposal
+rather than two separate asks.
+
 My question remains the same as in Letter 1, only more specific:
 
 **Is there a path under which firmware-level AF improvements to the
@@ -263,6 +284,19 @@ Integration 称之为 "improved predictive AF algorithm")。
 confidence 下降和无状态单帧决策策略)。上述 binning + Kalman 组合
 (配置 C)在 X2D 100C 上有独立价值 — 无论 LiDAR 在不在,它都能解决
 这些 firmware-level 失败模式。
+
+连接到 Letter 1 的 AF-C 问题:configuration D 用的元件(焦点位置
+Kalman 时间先验、multi-zone 信任度聚合、更高的 AF 决策帧率)正是
+任何 continuous-AF (AF-C) 实现所需要的基础构件。仓库里还有一个
+`V4Policy`(在 `pdaf_sim/policy2d.py`),在这些之上加了 2D 主体
+bounding-box Kalman tracker,演示了 subject 跨遮挡持续和跨 zone
+运动追踪在仿真的 294-zone PDAF 架构上也是可处理的。我不是建议你们
+应该 ship 这些具体算法;只是想说算法层面的「AF-C 能不能在 X2D 级
+硬件上做」这个问题看起来在软件层是肯定的。如果你们对 Letter 1 的
+回应是 AF-C 受硬件限制,这份工作能把问题精确化到**具体哪一层硬件**
+(ISP 排程、镜头马达驱动 loop、bus 带宽);如果你们的回应是 AF-C
+是政策决定不是硬件天花板,那两封信合起来描述的就是一个一致的技术
+提案,而不是两件分开的事。
 
 我的问题跟 Letter 1 一样,只是更具体:
 
