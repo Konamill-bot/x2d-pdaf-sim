@@ -1,0 +1,12 @@
+{
+  "target": "synthetic_gfx_like",
+  "params": {
+    "tau_trust": 0.2756502670079167,
+    "tau_sweep": 0.05276876940342319,
+    "process_var": 0.36408392671433654,
+    "meas_var_base": 1.4122365497061682,
+    "sweep_step": 0.19128636479217376,
+    "snap_gain": 0.4366514526823897,
+    "reset_on_shot": false
+  }
+}
