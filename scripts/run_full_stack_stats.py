@@ -10,6 +10,8 @@ Same 5 lever configurations as run_full_stack.py, but:
 from __future__ import annotations
 import os
 import sys
+import time
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -26,7 +28,7 @@ F_MM, FNUM, SUBJ_DIST_MM, PIX_UM = 55.0, 2.5, 1500.0, 3.76
 PX_PER_MM = signed_disparity_px(1.0, F_MM, FNUM, SUBJ_DIST_MM, PIX_UM)
 HORIZON_SECONDS = 2.0
 BIN_TO_FPS = {1: 15, 4: 60}
-N_SEEDS = 10
+N_SEEDS = 100
 
 
 def fresh_policy(p):
@@ -106,17 +108,32 @@ def build_configs():
     ]
 
 
+def _job(args):
+    """Module-level worker function so it's picklable for ProcessPoolExecutor."""
+    scene, _label, kwargs, seed = args
+    return run(scene, seed=seed, **kwargs)
+
+
 def main():
     os.makedirs('out', exist_ok=True)
     scenes = ['low_contrast', 'high_contrast']
     configs = build_configs()
 
-    # results[scene][config_name] = list of N_SEEDS dicts
-    results = {s: {} for s in scenes}
-    for scene in scenes:
-        for label, kwargs in configs:
-            seed_runs = [run(scene, seed=s, **kwargs) for s in range(N_SEEDS)]
-            results[scene][label] = seed_runs
+    # Parallel: build a job list of (scene, label, kwargs, seed) tuples
+    jobs = [(scene, label, kwargs, s)
+            for scene in scenes
+            for (label, kwargs) in configs
+            for s in range(N_SEEDS)]
+
+    t0 = time.time()
+    print(f"Running {len(jobs)} jobs across CPU workers...")
+    with ProcessPoolExecutor() as ex:
+        out_list = list(ex.map(_job, jobs, chunksize=8))
+    print(f"Done in {time.time() - t0:.1f} s.")
+
+    results = {s: {label: [] for label, _ in configs} for s in scenes}
+    for (scene, label, _kw, _s), r in zip(jobs, out_list):
+        results[scene][label].append(r)
 
     # ---------- print summary ----------
     for scene in scenes:

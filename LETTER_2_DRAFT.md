@@ -43,25 +43,39 @@ single-seed runs in this study showed misleading results (different
 seeds favoured different configurations); reporting now with 10-seed
 means and standard deviations is what changed the recommendation.
 
-Low-contrast static target (10 seeds, mean ± std of in-focus %, where
+Low-contrast static target (100 seeds, mean ± std of in-focus %, where
 in-focus means lens within 0.3 mm of target):
 
 | Configuration                                  | in-focus %  | trav (mm) |
 |------------------------------------------------|-------------|-----------|
 | A. baseline (stateless, 15 fps, single zone)   | 0 ± 0       | 5.80      |
 | B. + 4x4 binning (60 fps) only                 | 0 ± 0       | 23.80     |
-| C. + Kalman temporal prior                     | 33 ± 31     | 11.85     |
-| **D. + multi-zone confidence aggregation**     | **82 ± 16** | 2.26      |
-| E. + deadband + PID + CDAF fusion (V3 stack)   | 18 ± 36     | 1.67      |
+| C. + Kalman temporal prior                     | 36 ± 34     | 9.05      |
+| **D. + multi-zone confidence aggregation**     | **86 ± 16** | 2.35      |
+| E. + deadband + PID + CDAF fusion (V3 stack)   | 35 ± 44     | 1.72      |
 
-High-contrast static target (same 10 seeds):
+High-contrast static target (same 100 seeds):
 
-| Configuration                                  | in-focus % | lock time   |
-|------------------------------------------------|------------|-------------|
-| A. baseline                                    | 90 ± 30    | 0.00 s      |
-| C. + Kalman                                    | 92 ± 1     | 0.16 s      |
-| D. + multi-zone                                | 92 ± 1     | 0.16 s      |
-| E. + V3                                        | 93 ± 1     | 0.13 s      |
+| Configuration                                  | in-focus %  | lock time   |
+|------------------------------------------------|-------------|-------------|
+| A. baseline                                    | **56 ± 48** | 0.08 s      |
+| C. + Kalman                                    | 90 ± 9      | 0.18 s      |
+| **D. + multi-zone**                            | **91 ± 3**  | 0.18 s      |
+| E. + V3                                        | 87 ± 24     | 0.14 s      |
+
+I want to call out one specific number in the high-contrast table:
+**the baseline scores 56 ± 48 %**, meaning the current single-frame
+PSR-threshold policy succeeds on roughly half the seeds and fails
+catastrophically on the other half, even on high-contrast scenes
+where it should succeed comfortably. This statistical signature
+matches a direct observation I made on my own X2D: the same scene,
+half-pressed multiple times, sometimes locks immediately and
+sometimes hunts. The simulation reproducing this stochasticity from
+first principles (stateless single-frame decisions on noisy PDAF
+correlations) is the only point in this study where my synthetic
+model and direct camera behaviour cross-validated independently.
+That gives me modest confidence the rest of the model's predictions
+are at least in the right qualitative ballpark.
 
 The four non-obvious findings from this matrix:
 
@@ -165,12 +179,15 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 内部实现的任何 claim,也不是要求你们采纳我的代码。它的存在是为了
 任何可能的技术对话都从同一套定义出发。
 
-报告基于 10 seed 平均的完整 lever-by-lever 实验
+报告基于 100 seed 平均的完整 lever-by-lever 实验
 (`scripts/run_full_stack_stats.py`,`out/full_stack_metrics.png`)
 最重要的发现:**在低对比和高对比场景都可靠获胜的组合,是 sensor
-binning + Kalman 时间先验 + multi-zone 信任度聚合**。先前单 seed
-跑出来的结果会随机倾向不同 config,改用 10 seed 平均后,真正稳定
-胜出的是配置 D。
+binning + Kalman 时间先验 + multi-zone 信任度聚合(配置 D)**。
+另外一个重要发现:**high-contrast 上 baseline 评分是 56 ± 48 %**,
+正好对应我在自己 X2D 上观察到的"同场景半按多次,有时立即锁有时
+hunting"的随机行为 — 仿真从第一性原理(单帧 PSR 阈值 + PDAF 相位
+相关 noise)独立复现了这个统计特征,说明仿真模型至少在质性方向上
+是对的。
 
 低对比静态目标的 lever 矩阵:
 
