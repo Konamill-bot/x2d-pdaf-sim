@@ -5,6 +5,22 @@ Send English. Keep tone consistent with Letter 1: technical, calm,
 respectful, no demands. State observations, present analysis, ask one
 clear question.
 
+**PRE-SEND CHECKLIST (do these in order before sending):**
+1. The letter references `https://github.com/Konamill-bot/x2d-pdaf-sim`
+   in four places (lines 27, 197, 198, 215). This repository does
+   not yet exist publicly. Push the local repo to GitHub following
+   `GITHUB_PUSH.md` BEFORE sending this letter. If repo is not yet
+   public, the link will 404 and damage credibility.
+2. Verify Hasselblad has responded to Letter 1 (or 10 business days
+   have passed from their acknowledgement) -- see "When to send"
+   section at the end of this file.
+3. Skim the letter once for the 5 numbers that will hit hardest if
+   wrong: 1000 seeds, 86 ± 15 % (D low-contrast),
+   88 ± 16 % (D high-contrast), 52 ± 48 % (baseline high-contrast),
+   0.5 % mean SEM. These must match `out/full_stack_metrics.png`.
+4. Optional but recommended: have a second person (or another model)
+   re-read the English version for tone before sending.
+
 ---
 
 ## English version (send this)
@@ -35,13 +51,14 @@ might have starts from the same definitions.
 
 I want to lead with the most important finding from the full
 lever-by-lever experiment (`scripts/run_full_stack_stats.py`,
-`out/full_stack_metrics.png`), based on 10 independent seeds per
+`out/full_stack_metrics.png`), based on 1000 independent seeds per
 configuration: **the combination that produces a reliable win across
 both low-contrast and high-contrast scenes is sensor binning + Kalman
 temporal prior + multi-zone confidence aggregation.** Earlier
 single-seed runs in this study showed misleading results (different
-seeds favoured different configurations); reporting now with 10-seed
-means and standard deviations is what changed the recommendation.
+seeds favoured different configurations); reporting now with
+1000-seed means and standard deviations is what changed the
+recommendation.
 
 Low-contrast static target (1000 seeds, mean ± std of in-focus %,
 where in-focus means lens within 0.3 mm of target). The mean
@@ -239,40 +256,65 @@ hunting"的随机行为 — 仿真从第一性原理(单帧 PSR 阈值 + PDAF �
 相关 noise)独立复现了这个统计特征,说明仿真模型至少在质性方向上
 是对的。
 
-低对比静态目标的 lever 矩阵:
+低对比静态目标(1000 seeds,mean ± std of in-focus %,n=1000 时
+mean 的 standard error 约 0.5 个百分点):
 
-| 配置                                            | in-focus % | final err |
-|-------------------------------------------------|------------|-----------|
-| A. baseline(stateless, 15 fps, 单 zone)        | 0%         | 2.50 mm   |
-| B. + 4x4 binning(60 fps)单独                    | **0%**     | 2.50 mm   |
-| C. + Kalman 时间先验                             | **85%**    | **0.03 mm** |
-| D. + multi-zone 信任度一致性                     | 35%        | 0.37 mm   |
-| E. + deadband + PID + CDAF fusion(V3 stack)    | 0%         | 0.57 mm   |
+| 配置                                            | in-focus %    | trav (mm) |
+|-------------------------------------------------|---------------|-----------|
+| A. baseline(stateless, 15 fps, 单 zone)        | 0.0 ± 0       | 5.80      |
+| B. + 4x4 binning(60 fps)单独                    | 0.0 ± 0       | 23.80     |
+| C. + Kalman 时间先验                             | 38.6 ± 35.1   | 9.42      |
+| **D. + multi-zone 信任度聚合**                  | **86.0 ± 15.4** | 2.37    |
+| E. + deadband + PID + CDAF fusion(V3 stack)    | 35.9 ± 43.8   | 1.74      |
 
-非显然 findings:
+高对比静态目标(同 1000 seeds):
 
-1. **AF 读出帧率单独提高(配置 B)无效,甚至更糟**。没有时间先验
+| 配置                                            | in-focus %      | lock time |
+|-------------------------------------------------|-----------------|-----------|
+| A. baseline                                     | **51.9 ± 48.3** | 0.08 s    |
+| C. + Kalman                                     | 87.9 ± 15.9     | 0.19 s    |
+| **D. + multi-zone**                             | **87.6 ± 16.3** | 0.19 s    |
+| E. + V3                                         | 82.4 ± 29.7     | 0.14 s    |
+
+四个非显然 findings:
+
+1. **AF 读出帧率单独提高(配置 B)无效,反而更糟**。没有时间先验
    去积分测量,15 → 60 fps 只是把单帧低置信度决策的频率翻 4 倍。
-   镜头无效行程从 5.8mm 涨到 23.8mm。两个 lever 必须配对。
+   镜头无效行程从 5.8mm 涨到 23.8mm。binning 和时间先验必须配对。
 
-2. **Kalman 时间先验(配置 C)才是真正的 hero**。binning + Kalman
-   在 2.5mm 目标上 0.30s 内锁焦,baseline 永远到不了。这是我能站住
-   脚的 headline 结果。计算开销在现代 application-class processor
+2. **Configuration D 是推荐的目标**。Binning + Kalman + multi-zone
+   产生低对比 86 ± 15 %,高对比 88 ± 16 %(基于 1000 独立 seed,
+   mean SEM 约 0.5 %)。计算开销在现代 application-class processor
    上是微秒级。
 
-3. **Multi-zone confidence aggregation(配置 D)在低对比场景退步**。
-   当每个 zone 都看到 noise 时,zone 间 median 也是 noise — 没有
-   共识可提取。multi-zone 对周期 aliased 信号有效,应**条件性**用,
-   不是无条件用。
+3. **Configuration C(没 multi-zone)在低对比上不可靠**。平均 39 %
+   in-focus 但 ±35 % 标准差 — 有些场景跑得很干净,有些完全失败。
+   高对比上 C 和 D 统计等价(88±16 vs 88±16),所以 multi-zone
+   在简单场景上 essentially free,在困难场景上 essential — 是
+   dominant strategy。
 
-4. **完整 V3 stack(配置 E)在低对比上过度约束**。Deadband + PID +
-   CDAF fusion 改进机械平滑度,减少镜头马达行程 ~30%,但在无特征
-   主体上会让镜头根本到不了焦。它们适合高对比主体(已经能锁的
-   情况下),不适合作为低对比的 default。
+4. **完整 V3 stack(配置 E)在低对比上过度约束,但在高对比上锁
+   最快**。Deadband + PID + CDAF fusion 改进机械平滑度,但在无
+   特征主体上无法可靠对焦(18 ± 36 %)。适合作为已知好光线 / 有
+   纹理主体的 *user-selectable* 模式,不是 universal default。
+
+我想特别指出高对比表里的一个数字:**baseline 评分是 52 ± 48 %**,
+意味着当前的单帧 PSR 阈值策略在大约一半的 seed 上成功,另一半灾难
+性失败 — 即使在高对比场景下,理应轻松成功的情况。这个统计特征跟
+我在自己 X2D 上直接观察到的「同场景半按多次,有时立即锁有时
+hunting」吻合。仿真从第一性原理(单帧 PSR 阈值 + 噪声 PDAF 相关)
+独立复现这个 stochasticity — 是整个研究里我的合成模型和真实相机
+行为唯一一次独立 cross-validate 的点。这给我对模型其他预测的质性
+方向有 modest confidence。
 
 第一个 lever 的两个 conditional caveat 仍然适用:ISP 排程和 sensor
-到 SoC 的内部 bus 带宽是 Hasselblad 内部才能测的,所以即使配置 C
-也是 *if* AF loop 能跑到 60 fps,*then* 上述结果成立。
+到 SoC 的内部 bus 带宽是 Hasselblad 内部才能测的,所以配置 D 也是
+陈述为 *if* AF loop 能通过 PDAF channel 配置跑到 60 fps,*then*
+上述结果成立。X2D 的 sensor 是 Sony IMX461,其 datasheet 明确记载
+了 vertical subsampling 和 horizontal pixel binning 用于 high-speed
+12-bit 输出的支持;4x4 binned 60 fps PDAF readout 所需带宽,跟
+shutter event 时已经稳定支持的 full 100 MP readout 带宽相当,
+意味着 sensor 侧不是约束。
 
 这些观察以我自己的 Sony A7 IV 直接对比锚定(全白墙场景上 ~0.7 秒
 单次 hunt 后明确失败指示),以及 Fujifilm 从 GFX 100S 到 100S II
