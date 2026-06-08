@@ -24,7 +24,7 @@ open-source simulation testbench for PDAF autofocus decision policies,
 and cross-referenced findings against published reviews and patent
 literature. The work is at:
 
-  https://github.com/<your-username>/x2d-pdaf-sim
+  https://github.com/Konamill-bot/x2d-pdaf-sim
 
 I want to be transparent about what it is and is not. It is a *public*,
 *reproducible*, *self-contained* study using synthetic scenes and a thin-
@@ -40,12 +40,11 @@ mirrorless bodies, without requiring any hardware change:
 
 1. **AF decision-loop framerate (conditional claim).** Modern
    on-sensor PDAF uses a readout channel architecturally distinct from
-   the imaging pixel readout — PDAF pixels cannot be binned with their
-   neighbours without destroying the sub-aperture phase signal, so they
-   are typically exposed through a separate readout path whose rate is
-   a configuration choice. The X2D's 5.76 M-dot EVF and 2.36 M-dot rear
-   LCD establish that the sensor sustains high-framerate subsampled
-   output during live view.
+   the imaging pixel readout — PDAF pixels are typically excluded from
+   the imaging-pixel binning that drives live-view, and exposed through
+   a separate readout path whose rate is a configuration choice. The
+   X2D's 5.76 M-dot EVF and 2.36 M-dot rear LCD establish that the
+   sensor sustains high-framerate subsampled output during live view.
 
    I want to be careful here: live-view EVF throughput does not, on
    its own, prove that the AF pipeline (sensor → PDAF readout → ISP
@@ -60,16 +59,16 @@ mirrorless bodies, without requiring any hardware change:
    The simulation result is therefore conditional in form: *if* AF
    decision-loop framerate can be raised from approximately 15 fps
    to 60 fps, *then* hunting sweeps drop from 30 to 0 on a
-   low-contrast target and lock time falls to 0.18 seconds. Whether
-   the antecedent holds in the X2D pipeline is exactly the question
-   I am unable to answer from outside the camera.
+   low-contrast static target and lock time falls to 0.18 seconds.
+   Whether the antecedent holds in the X2D pipeline is exactly the
+   question I am unable to answer from outside the camera.
 
 2. **Temporal prior on PDAF measurements.** Replacing single-frame
    PSR thresholding with a confidence-weighted Kalman filter over
-   lens position reduces simulated hunting sweeps by 63 percent in
-   low-contrast scenes. The compute cost is on the order of
-   microseconds per frame on any Cortex-A class CPU, independent of
-   sensor readout.
+   lens position reduces simulated hunting sweeps by 63 percent on a
+   low-contrast static target at 15 fps. The compute cost is on the
+   order of microseconds per frame on any modern application-class
+   processor, independent of sensor readout.
 
 3. **Multi-zone confidence agreement.** Querying several PDAF zones
    in parallel and weighting confidence by inter-zone agreement
@@ -77,9 +76,20 @@ mirrorless bodies, without requiring any hardware change:
    patterns) and improves robustness on subjects with small motion.
 
 The combination of all three produces, in simulation, a lock time of
-approximately 0.22 seconds on a low-contrast target where the current-
-behaviour baseline never locks. The repository's
-`out/stacked_comparison.png` is the headline figure.
+approximately 0.22 seconds on a low-contrast target where the
+simulated 15 fps baseline does not lock within the two-second
+observation window. The repository's `out/stacked_comparison.png` is
+the headline figure.
+
+A fourth experiment (v3) stacks deadband control, PID lens drive, and
+PDAF/CDAF fusion on top of the three above. The result is honestly
+mixed: v3 reduces lens motor travel by roughly 30 percent and
+eliminates the residual sweep entirely, in exchange for about 100 ms
+slower lock on low-contrast subjects. I include it in the repository
+because the trade-off itself is informative — it suggests the
+firmware design choice between "fastest possible lock" and "smoothest
+mechanical behaviour with longest motor life" is real, and that there
+may be value in exposing this as a user preference.
 
 These observations are anchored by direct comparison with my own Sony
 A7 IV (which on an all-white wall produces a single ~0.7 second hunt
@@ -90,10 +100,12 @@ Capture Integration called an "improved predictive AF algorithm."
 
 I am aware the X2D II 100C addresses AF via LiDAR. LiDAR provides
 range and is a meaningful hardware improvement; it does not, however,
-solve the failure modes I identified (in particular the near-focus PSR
-confidence drop and the stateless single-frame decision policy). The
-firmware-level levers above appear to have independent value, and
-would have benefit on X2D 100C without requiring an X2D II purchase.
+solve the failure modes I infer from my observations — in particular
+a near-focus AF failure consistent with PDAF correlation-peak
+broadening at zero defocus, and stochastic same-scene behaviour
+consistent with a stateless single-frame decision policy. The
+firmware-level levers above appear to have independent value on the
+X2D 100C.
 
 My question remains the same as in Letter 1, only more specific:
 
@@ -102,10 +114,11 @@ X2D 100C could be considered — whether as a paid capability upgrade,
 a routine firmware revision, or a hardware-limitation reply that
 honestly closes the topic?**
 
-I have no expectation that my work be adopted. I will continue to
-publish further findings to the public repository regardless of your
-response, in the same calm and non-confrontational manner as this
-letter. I would simply value knowing whether the door is open.
+I do not expect a quick response; please take the time you need. I
+have no expectation that my work be adopted. I plan to continue
+documenting findings on the public repository as work progresses, in
+the same calm and non-confrontational tone as this letter. I would
+simply value knowing whether the door is open.
 
 Thank you again for your time.
 
@@ -114,7 +127,7 @@ Chan Kam Chi
 Hasselblad 500C/A12 · X2D 100C (fw 4.2.0) · XCD 2,5/55V · Hasselblad Masters 2026
 Public technical notes:
   github.com/Konamill-bot/x2d-cim-notes
-  github.com/<your-username>/x2d-pdaf-sim   (this study)
+  github.com/Konamill-bot/x2d-pdaf-sim   (this study)
 
 ---
 
@@ -131,7 +144,7 @@ Public technical notes:
 XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbench,
 并把发现跟公开 review、专利文献交叉验证。项目在:
 
-  https://github.com/<your-username>/x2d-pdaf-sim
+  https://github.com/Konamill-bot/x2d-pdaf-sim
 
 我想坦白说明它**是什么**和**不是什么**。它是一个**公开**、**可复现**、
 **自包含**的研究,使用合成场景和薄透镜光学模型。它不是对 Hasselblad
