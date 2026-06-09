@@ -129,7 +129,13 @@ The four non-obvious findings from this matrix:
    low-contrast and 98.5 ± 0.4 % on high-contrast (over 1000
    independent seeds on the 294-zone IMX461 simulator, mean SEM ~0.5 %).
    Compute cost is on the order of microseconds per frame on any
-   modern application-class processor.
+   modern application-class processor. To put it more precisely:
+   **configuration D is not a proposal for better AF-S. It is, in
+   effect, a working AF-C loop — a Kalman-filtered, multi-zone,
+   high-framerate decision system that tracks focus continuously
+   across frames.** The only difference between this simulation and
+   an in-camera AF-C implementation is the firmware layer that
+   enables it.
 
 3. **Multi-zone aggregation is essential on low-contrast, not optional.**
    Configuration C (Kalman without multi-zone) achieves only 5 ± 11 %
@@ -228,6 +234,18 @@ same-scene behaviour consistent with stateless single-frame
 decisions — are firmware-level and orthogonal to range sensing.
 Configuration D would address them whether LiDAR is present or not.
 
+A related observation. The X2D II 100C's continuous-AF mode is
+currently supported on only seven lenses (XCD 25 V, 28 P, 38 V,
+55 V, 75 P, 90 V, and 35-100 E), and only in leaf-shutter mode.
+Hasselblad's own product communication attributes the limitation to
+older XCD focus modules being unable to track quickly enough. This
+is a useful data point: even on the body that ships AF-C, the
+binding constraint is not the body's silicon but the mechanical
+focusing layer of older lenses. The firmware-layer levers I describe
+above are independent of that mechanical limitation and would lift
+performance wherever the underlying lens can move at the required
+rate.
+
 A note connecting this back to my Letter 1 AF-C question. The
 components in configuration D — a Kalman temporal prior over focus
 position, multi-zone confidence aggregation, and a higher AF
@@ -256,11 +274,17 @@ X2D 100C could be considered — whether as a paid capability upgrade,
 a routine firmware revision, or a hardware-limitation reply that
 honestly closes the topic?**
 
+I am not asking for a position, and I am not asking for my code to
+be adopted. I am asking for something simpler — acknowledgement that
+the question is worth answering. A 20-year-old who spent his weekend
+building this simulation instead of doing anything else did so because
+this brand genuinely matters to him. That kind of engagement is rare,
+and I would simply value knowing it was seen.
+
 I do not expect a quick response; please take the time you need. I
-have no expectation that my work be adopted. I plan to continue
-documenting findings on the public repository as work progresses, in
-the same calm and non-confrontational tone as this letter. I would
-simply value knowing whether the door is open.
+plan to continue documenting findings on the public repository in the
+same calm and non-confrontational tone as this letter, regardless of
+how this conversation develops.
 
 Thank you again for your time.
 
@@ -386,7 +410,11 @@ weighted 聚合。Bar chart 在 `out/imx461_full_stack_metrics.png`。
 2. **Configuration D 是推荐的目标**。Binning + Kalman + 最近 5 zone
    multi-zone 聚合产生低对比 47 ± 35 %,高对比 98.5 ± 0.4 %(基于
    1000 独立 seed 在 294-zone IMX461 仿真上,mean SEM 约 0.5 %)。
-   计算开销在现代 application-class processor 上是微秒级。
+   计算开销在现代 application-class processor 上是微秒级。更精确
+   地说:**configuration D 不是更好 AF-S 的提案。它本身就是一个
+   working AF-C loop — 一个 Kalman 滤波、multi-zone、高帧率的决策
+   系统,跨帧持续追踪焦点。** 这个仿真和机内 AF-C 实现之间唯一的
+   差别,就是 firmware 层是否启用它。
 
 3. **Multi-zone 聚合在低对比上是必须,不是 optional**。Configuration
    C(没有 multi-zone 的 Kalman)在低对比上只有 5 ± 11 % in-focus —
@@ -429,6 +457,14 @@ Integration 称之为 "improved predictive AF algorithm")。
 决策的随机性)是 firmware-level,跟测距正交。configuration D 不论
 LiDAR 在不在都能解决它们。
 
+另一个相关观察:X2D II 100C 的 continuous-AF 模式目前只支持七颗
+镜头(XCD 25 V, 28 P, 38 V, 55 V, 75 P, 90 V, 35-100 E),且仅在
+leaf shutter 模式下工作。Hasselblad 自己的产品说明把这个限制归因于
+旧 XCD focus 模块无法跟得够快。这是个有用的数据点:即使在出 AF-C
+的机身上,binding constraint 也不是机身硅片,而是旧镜头的机械对焦
+层。上面描述的 firmware 层 lever 跟这个机械限制无关,在底层镜头能
+以所需速率移动的地方,它们都能提升性能。
+
 连接到 Letter 1 的 AF-C 问题:configuration D 用的元件(焦点位置
 Kalman 时间先验、multi-zone 信任度聚合、更高的 AF 决策帧率)正是
 任何 continuous-AF (AF-C) 实现所需要的基础构件。仓库里还有一个
@@ -448,9 +484,13 @@ bounding-box Kalman tracker,演示了 subject 跨遮挡持续和跨 zone
 不论是付费 capability upgrade、routine firmware revision、还是
 诚实关闭话题的"硬件限制"回复?**
 
-我不期望我的工作被采纳。无论你们怎么回复,我都会继续以与本信
-相同的冷静、不对抗的方式向公开仓库发布更多发现。我只是想知道
-门是否开着。
+我不是在要一个立场,也不是在要你们采纳我的代码。我在要的是更简单的
+东西 — 承认这个问题值得回答。一个 20 岁的人把周末花在搭这个仿真
+而不是做任何别的事,是因为这个品牌对他真的 matter。这种 engagement
+是罕见的,我只想知道它被看见了。
+
+我不期望快速回复,请按你们需要的时间来。无论这个对话怎么发展,我
+都会以与本信相同的冷静、不对抗的方式继续在公开仓库记录发现。
 
 再次感谢你们的时间。
 
