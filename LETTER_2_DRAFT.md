@@ -7,10 +7,11 @@ clear question.
 
 **PRE-SEND CHECKLIST (do these in order before sending):**
 1. The letter references `https://github.com/Konamill-bot/x2d-pdaf-sim`
-   in four places (lines 27, 197, 198, 215). This repository does
-   not yet exist publicly. Push the local repo to GitHub following
-   `GITHUB_PUSH.md` BEFORE sending this letter. If repo is not yet
-   public, the link will 404 and damage credibility.
+   in four places throughout (English body + signature, Chinese body +
+   signature). This repository does not yet exist publicly. Push the
+   local repo to GitHub following `GITHUB_PUSH.md` BEFORE sending this
+   letter. If the repo is not yet public, the link will 404 and damage
+   credibility.
 2. Verify Hasselblad has responded to Letter 1 (or 10 business days
    have passed from their acknowledgement) -- see "When to send"
    section at the end of this file.
@@ -382,11 +383,8 @@ latency buffering 会完全破坏高对比性能**(配置 D 在 naive 2 帧延�
 (`scripts/run_imx461_stats.py`,`out/imx461_full_stack_metrics.png`)
 最重要的发现:**在低对比和高对比场景都可靠获胜的组合,是 sensor
 binning + Kalman 时间先验 + multi-zone 信任度聚合(配置 D)**。
-另外一个重要发现:**high-contrast 上 baseline 评分是 56 ± 48 %**,
-正好对应我在自己 X2D 上观察到的"同场景半按多次,有时立即锁有时
-hunting"的随机行为 — 仿真从第一性原理(单帧 PSR 阈值 + PDAF 相位
-相关 noise)独立复现了这个统计特征,说明仿真模型至少在质性方向上
-是对的。
+(关于 baseline 评分及其与 X2D 真实行为的 cross-validation,
+见下方 high-contrast 表后段。)
 
 所有下方数字来自基于 Sony IMX461 真实架构的仿真:21×14 = 294 PDAF
 zones uniformly tile 在有效区,每 zone 用 native 3.76μm pitch 做
@@ -442,14 +440,14 @@ weighted 聚合。Bar chart 在 `out/imx461_full_stack_metrics.png`。
    输入交互不良;repo 里持续 investigate。这里列出来是为了透明,
    而不是作为推荐。
 
-我想特别指出高对比表里的一个数字:**baseline 评分是 52 ± 48 %**,
-意味着当前的单帧 PSR 阈值策略在大约一半的 seed 上成功,另一半灾难
-性失败 — 即使在高对比场景下,理应轻松成功的情况。这个统计特征跟
-我在自己 X2D 上直接观察到的「同场景半按多次,有时立即锁有时
-hunting」吻合。仿真从第一性原理(单帧 PSR 阈值 + 噪声 PDAF 相关)
-独立复现这个 stochasticity — 是整个研究里我的合成模型和真实相机
-行为唯一一次独立 cross-validate 的点。这给我对模型其他预测的质性
-方向有 modest confidence。
+我想特别指出高对比表里的一个数字:**baseline 评分是 65 ± 43 %**,
+意味着当前的单帧 PSR 阈值策略在大约三分之二的 seed 上成功,其余
+灾难性失败 — 即使在高对比场景下,理应轻松成功的情况。这个统计
+特征跟我在自己 X2D 上直接观察到的「同场景半按多次,有时立即锁
+有时 hunting」吻合。仿真从第一性原理(单帧 PSR 阈值 + 噪声 PDAF
+相关)独立复现这个 stochasticity — 是整个研究里我的合成模型和
+真实相机行为唯一一次独立 cross-validate 的点。这给我对模型其他
+预测的质性方向有 modest confidence。
 
 第一个 lever 的两个 conditional caveat 仍然适用:ISP 排程和 sensor
 到 SoC 的内部 bus 带宽是 Hasselblad 内部才能测的,所以配置 D 也是
