@@ -157,7 +157,39 @@ the bandwidth required for 4x4-binned 60 fps PDAF readout is
 comparable to the full 100 MP readout already sustained at the
 shutter event, suggesting the sensor side is not the constraint.
 
-**One epistemic limit I want to acknowledge explicitly.** This study
+**Two specific sensor-architecture uncertainties I cannot resolve from
+outside the camera.** Both affect how literally the simulation's
+numbers should be taken:
+
+(a) *Does the IMX461 support separate PDAF readout that preserves
+sub-aperture phase signal under 4x4 imaging binning?* The Sony product
+flyer for IMX461 documents binning support for high-speed imaging but
+does not describe the PDAF readout architecture. The simulation
+assumes PDAF rows are read at native 3.76 µm pitch independently of
+imaging binning. This is consistent with general dual-channel sensor
+design and with the patent literature explicitly addressing
+disparity-preserving binning (US 11523071 *"Disparity-Preserving
+Binning for Phase Detection Autofocus"*), but I cannot confirm it is
+true of IMX461 specifically. If the IMX461 only supports combined
+readout where 4x4 binning averages PDAF pixels with their neighbours,
+the phase signal would be destroyed and the entire binning + multi-
+zone proposal becomes inapplicable. This is exactly the question
+your sensor team can answer directly.
+
+(b) *What is the actual ISP-to-decision latency at 60 fps on the X2D?*
+The simulation uses 2 frames (~33 ms) as a representative value, but
+the real number depends on ISP pipeline scheduling, readout mode, and
+firmware. A 1-frame latency would be more forgiving and a 3-frame
+latency would degrade temporal-prior performance noticeably. I have
+also confirmed that *naive* latency buffering without predict-forward
+Kalman compensation breaks high-contrast performance entirely (config
+D under naive 2-frame delay scores 0 ± 0 % in-focus in simulation,
+documented in the repository). Production-quality latency handling
+requires the policy to advance its state estimate forward by N frames
+before applying the delayed measurement — the standard
+predictive-AF maths used by every modern AF system.
+
+**One general epistemic limit beyond the two above.** This study
 assumes a baseline algorithm whose simulated output behaviour matches
 what I observe on my X2D — hunting in low contrast, stochastic
 same-scene response, near-focus failure. That match is consistent
@@ -264,7 +296,29 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 内部实现的任何 claim,也不是要求你们采纳我的代码。它的存在是为了
 任何可能的技术对话都从同一套定义出发。
 
-**先讲一个认知限制(epistemic limit)**:这个研究假设的 baseline 算法
+**两个我从外部无法确认的 sensor 架构不确定性**,两者都影响仿真数字
+应该被字面理解到什么程度:
+
+(a) *IMX461 是否支持独立 PDAF readout,使 sub-aperture 相位信号在
+4x4 imaging binning 下不被破坏?* Sony 的 IMX461 flyer 记载了 binning
+支持高速 imaging,但**没**描述 PDAF readout 架构。仿真假设 PDAF rows
+独立于 imaging binning 以 native 3.76μm pitch 读出。这跟一般 dual-
+channel sensor 设计、以及专门处理「disparity-preserving binning」
+的专利文献(US 11523071)一致,但**我无法确认这对 IMX461 specifically
+成立**。如果 IMX461 只支持 combined readout(4x4 binning 把 PDAF 像素
+跟邻居平均),相位信号会被销毁,整个 binning + multi-zone 提案就不
+适用。这正是你们的 sensor 团队能直接回答的问题。
+
+(b) *X2D 在 60 fps 下 ISP 到决策的实际 latency 是多少?* 仿真用 2
+帧(~33 ms)作为代表值,但真实数字取决于 ISP pipeline 排程、readout
+模式、firmware。1 帧 latency 会更宽容,3 帧 latency 会显著降低时间
+先验性能。我也确认了:**没有 predict-forward Kalman 补偿的 naive
+latency buffering 会完全破坏高对比性能**(配置 D 在 naive 2 帧延迟下
+仿真得分 0 ± 0 % in-focus,记录在 repo 里)。production-quality
+的 latency 处理需要 policy 在应用延迟测量前把状态预测前推 N 帧 —
+现代 AF 系统都用的标准 predictive-AF 算法。
+
+**除上述两点之外的一个 general 认知限制**:
 其仿真输出行为(hunting、随机性、近焦点失败)跟我在 X2D 上观察到的
 吻合。这个吻合**既可能**意味着 X2D 固件确实缺少 configuration D 里
 的技术,**也可能**意味着 X2D 已经有这些技术但被别处限制(参数调校、
