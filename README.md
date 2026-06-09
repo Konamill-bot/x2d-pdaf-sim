@@ -52,10 +52,10 @@ None of the three levers requires hardware changes.
   observed-behaviour trajectories via differential evolution
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
-- `TONIGHT_v2.md` — running notebook on what's been tried, what works,
-  and what doesn't (honest)
-- `LETTER_2_DRAFT.md` — draft text of the follow-up letter to Hasselblad
-  this study supports
+- `DEV_LOG.md` — development log capturing intermediate hypotheses,
+  failed configurations, and reasoning along the way
+- `TECHNICAL_PROPOSAL.md` — the technical proposal this study supports,
+  also intended for delivery as personal correspondence to Hasselblad
 
 ## Run
 

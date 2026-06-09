@@ -1,4 +1,13 @@
-# Tonight v2 — summary written while you slept
+# Development Log
+
+> *Internal development log preserved for transparency. Captures
+> intermediate hypotheses, failed configurations, and reasoning
+> along the way. Final claims live in [`README.md`](README.md)
+> and [`FINDINGS.md`](FINDINGS.md); this file documents how the
+> work got there.*
+
+---
+
 
 ## What I built
 
@@ -230,4 +239,4 @@ next step when work resumes.
 - `pdaf_sim/benchmarks.py` — added `bench_near_focus_psr_drop`
 - `scripts/run_v2_comparison.py` — new
 - `out/v2_comparison.png` — new
-- `TONIGHT_v2.md` — this file
+- `DEV_LOG.md` — this file

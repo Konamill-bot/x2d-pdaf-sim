@@ -131,7 +131,7 @@ CONFIGS = [
     ('E +V3 (deadband+PID+CDAF)', 'v3',        True,  0),
 ]
 # Note: a 'D + 2-frame ISP latency without predict-forward compensation'
-# experiment was run separately and is documented in TONIGHT_v2.md.
+# experiment was run separately and is documented in DEV_LOG.md.
 # Briefly: naive latency-buffered measurements cause Kalman to track
 # stale positions and oscillate on high-contrast scenes (0% in_focus).
 # Proper latency handling requires the policy to advance its state

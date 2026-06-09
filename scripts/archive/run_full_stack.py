@@ -15,7 +15,7 @@ fps (15 fps for bin=1, 60 fps for bin=4). Report sweeps, time-to-lock,
 final error, and lens travel.
 
 This is the honest version of the headline figure that goes into
-LETTER_2_DRAFT.md. If a lever HURTS, we report that too -- the goal
+TECHNICAL_PROPOSAL.md. If a lever HURTS, we report that too -- the goal
 is to know what actually helps, not to make a clean marketing graph.
 """
 from __future__ import annotations
