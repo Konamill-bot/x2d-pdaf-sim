@@ -71,32 +71,39 @@ seeds favoured different configurations); reporting now with
 1000-seed means and standard deviations is what changed the
 recommendation.
 
-Low-contrast static target (1000 seeds, mean ± std of in-focus %,
-where in-focus means lens within 0.3 mm of target). The mean
-standard error at n=1000 is ~0.5%, so each mean below is accurate to
-roughly one percentage point:
+All numbers below come from a simulation modelled on the Sony IMX461
+sensor used in the X2D 100C: 21 × 14 = 294 PDAF zones tiled across
+the active area, per-zone phase correlation at the native 3.76 μm
+pitch (PDAF rows cannot be binned without destroying sub-aperture
+phase signal), multi-zone configurations querying the nearest five
+zones to subject and aggregating by confidence-weighted agreement.
+Bar chart in `out/imx461_full_stack_metrics.png`. 1000 seeds per
+configuration, mean standard error ~0.5 %.
 
-| Configuration                                  | in-focus %   | trav (mm) |
-|------------------------------------------------|--------------|-----------|
-| A. baseline (stateless, 15 fps, single zone)   | 0.0 ± 0      | 5.80      |
-| B. + 4x4 binning (60 fps) only                 | 0.0 ± 0      | 23.80     |
-| C. + Kalman temporal prior                     | 38.6 ± 35.1  | 9.42      |
-| **D. + multi-zone confidence aggregation**     | **86.0 ± 15.4** | 2.37   |
-| E. + deadband + PID + CDAF fusion (V3 stack)   | 35.9 ± 43.8  | 1.74      |
+Low-contrast static target (in-focus % = fraction of frames within
+0.3 mm of target):
+
+| Configuration                                  | in-focus %   |
+|------------------------------------------------|--------------|
+| A. baseline (stateless, 15 fps, single zone)   | 0.0 ± 0      |
+| B. + 4x4 binning (60 fps) only                 | 0.0 ± 0      |
+| C. + Kalman temporal prior (single zone)       | 5.2 ± 11.3   |
+| **D. + multi-zone aggregation (nearest 5)**    | **47.1 ± 35.4** |
+| E. + deadband + PID + CDAF fusion (V3 stack)   | 36.6 ± 42.2  |
 
 High-contrast static target (same 1000 seeds):
 
-| Configuration                                  | in-focus %    | lock time   |
-|------------------------------------------------|---------------|-------------|
-| A. baseline                                    | **51.9 ± 48.3** | 0.08 s    |
-| C. + Kalman                                    | 87.9 ± 15.9   | 0.19 s      |
-| **D. + multi-zone**                            | **87.6 ± 16.3** | 0.19 s    |
-| E. + V3                                        | 82.4 ± 29.7   | 0.14 s      |
+| Configuration                                  | in-focus %     |
+|------------------------------------------------|----------------|
+| A. baseline                                    | **64.6 ± 42.5** |
+| C. + Kalman                                    | 98.2 ± 0.9     |
+| **D. + multi-zone**                            | **98.5 ± 0.4** |
+| E. + V3                                        | 0.8 ± 8.8 (currently broken; see below) |
 
 I want to call out one specific number in the high-contrast table:
-**the baseline scores 52 ± 48 %**, meaning the current single-frame
-PSR-threshold policy succeeds on roughly half the seeds and fails
-catastrophically on the other half, even on high-contrast scenes
+**the baseline scores 65 ± 43 %**, meaning the current single-frame
+PSR-threshold policy succeeds on roughly two thirds of the seeds and
+fails catastrophically on the rest, even on high-contrast scenes
 where it should succeed comfortably. This statistical signature
 matches a direct observation I made on my own X2D: the same scene,
 half-pressed multiple times, sometimes locks immediately and
@@ -117,26 +124,27 @@ The four non-obvious findings from this matrix:
    and temporal prior must be paired.
 
 2. **Configuration D is the recommended target.** Binning + Kalman +
-   multi-zone produces 86 ± 15 % in-focus on low-contrast and 88 ± 16 %
-   on high-contrast (over 1000 independent seeds, mean SEM ~0.5 %).
+   nearest-5 multi-zone aggregation produces 47 ± 35 % in-focus on
+   low-contrast and 98.5 ± 0.4 % on high-contrast (over 1000
+   independent seeds on the 294-zone IMX461 simulator, mean SEM ~0.5 %).
    Compute cost is on the order of microseconds per frame on any
    modern application-class processor.
 
-3. **Configuration C without multi-zone is unreliable on low-contrast.**
-   It averages 39 % in-focus on low-contrast but with ±35 % standard
-   deviation — some scenes work cleanly, others fail completely. On
-   high-contrast scenes C and D are statistically equivalent (88 ± 16
-   vs 88 ± 16), so multi-zone is essentially free on easy scenes and
-   essential on hard ones — a dominant strategy.
+3. **Multi-zone aggregation is essential on low-contrast, not optional.**
+   Configuration C (Kalman without multi-zone) achieves only 5 ± 11 %
+   in-focus on low-contrast — effectively failure. The 9× lift from
+   adding nearest-5 aggregation is the single largest improvement in
+   the matrix. On high-contrast scenes C and D are statistically
+   equivalent (98.2 ± 0.9 vs 98.5 ± 0.4), so multi-zone is free on
+   easy scenes and necessary on hard ones — a dominant strategy.
 
-4. **The full V3 stack (config E) over-constrains low-contrast scenes
-   while remaining the fastest on high-contrast.** Deadband + PID +
-   CDAF fusion improve mechanical smoothness and reduce lens motor
-   travel further, but on featureless subjects they prevent the lens
-   from reaching focus reliably (36 ± 44 %, with very high variance).
-   They are appropriate as
-   a *user-selectable* mode for known-good lighting / textured
-   subjects, not as a universal default.
+4. **The full V3 stack (config E) is currently not recommended.**
+   On the 294-zone IMX461 simulator E scores 37 ± 42 % on low-contrast
+   and 1 ± 9 % on high-contrast. The deadband and PID parameters that
+   worked on the earlier single-strip simulation interact badly with
+   multi-zone aggregated confidence inputs; investigation continues
+   in the repository. I include it here for transparency rather than
+   as a recommendation.
 
 The two conditional caveats from the first lever still apply: ISP
 scheduling load and internal bus bandwidth between sensor and SoC are
@@ -276,25 +284,31 @@ hunting"的随机行为 — 仿真从第一性原理(单帧 PSR 阈值 + PDAF �
 相关 noise)独立复现了这个统计特征,说明仿真模型至少在质性方向上
 是对的。
 
-低对比静态目标(1000 seeds,mean ± std of in-focus %,n=1000 时
-mean 的 standard error 约 0.5 个百分点):
+所有下方数字来自基于 Sony IMX461 真实架构的仿真:21×14 = 294 PDAF
+zones uniformly tile 在有效区,每 zone 用 native 3.76μm pitch 做
+phase correlation(PDAF rows 不能 binning,否则 sub-aperture 相位
+信号被销毁),multi-zone 配置查询主体最近 5 个 zones 并 confidence-
+weighted 聚合。Bar chart 在 `out/imx461_full_stack_metrics.png`。
+1000 seeds,mean SEM ~0.5 %。
 
-| 配置                                            | in-focus %    | trav (mm) |
-|-------------------------------------------------|---------------|-----------|
-| A. baseline(stateless, 15 fps, 单 zone)        | 0.0 ± 0       | 5.80      |
-| B. + 4x4 binning(60 fps)单独                    | 0.0 ± 0       | 23.80     |
-| C. + Kalman 时间先验                             | 38.6 ± 35.1   | 9.42      |
-| **D. + multi-zone 信任度聚合**                  | **86.0 ± 15.4** | 2.37    |
-| E. + deadband + PID + CDAF fusion(V3 stack)    | 35.9 ± 43.8   | 1.74      |
+低对比静态目标(in-focus % = 镜头位置在 0.3mm 容差内的帧比例):
+
+| 配置                                            | in-focus %   |
+|-------------------------------------------------|--------------|
+| A. baseline(stateless, 15 fps, 单 zone)        | 0.0 ± 0      |
+| B. + 4x4 binning(60 fps)单独                    | 0.0 ± 0      |
+| C. + Kalman 时间先验(单 zone)                  | 5.2 ± 11.3   |
+| **D. + multi-zone 聚合(最近 5 zones)**          | **47.1 ± 35.4** |
+| E. + deadband + PID + CDAF fusion(V3 stack)    | 36.6 ± 42.2  |
 
 高对比静态目标(同 1000 seeds):
 
-| 配置                                            | in-focus %      | lock time |
-|-------------------------------------------------|-----------------|-----------|
-| A. baseline                                     | **51.9 ± 48.3** | 0.08 s    |
-| C. + Kalman                                     | 87.9 ± 15.9     | 0.19 s    |
-| **D. + multi-zone**                             | **87.6 ± 16.3** | 0.19 s    |
-| E. + V3                                         | 82.4 ± 29.7     | 0.14 s    |
+| 配置                                            | in-focus %     |
+|-------------------------------------------------|----------------|
+| A. baseline                                     | **64.6 ± 42.5** |
+| C. + Kalman                                     | 98.2 ± 0.9     |
+| **D. + multi-zone**                             | **98.5 ± 0.4** |
+| E. + V3                                         | 0.8 ± 8.8(当前坏,见下文) |
 
 四个非显然 findings:
 
@@ -302,21 +316,23 @@ mean 的 standard error 约 0.5 个百分点):
    去积分测量,15 → 60 fps 只是把单帧低置信度决策的频率翻 4 倍。
    镜头无效行程从 5.8mm 涨到 23.8mm。binning 和时间先验必须配对。
 
-2. **Configuration D 是推荐的目标**。Binning + Kalman + multi-zone
-   产生低对比 86 ± 15 %,高对比 88 ± 16 %(基于 1000 独立 seed,
-   mean SEM 约 0.5 %)。计算开销在现代 application-class processor
-   上是微秒级。
+2. **Configuration D 是推荐的目标**。Binning + Kalman + 最近 5 zone
+   multi-zone 聚合产生低对比 47 ± 35 %,高对比 98.5 ± 0.4 %(基于
+   1000 独立 seed 在 294-zone IMX461 仿真上,mean SEM 约 0.5 %)。
+   计算开销在现代 application-class processor 上是微秒级。
 
-3. **Configuration C(没 multi-zone)在低对比上不可靠**。平均 39 %
-   in-focus 但 ±35 % 标准差 — 有些场景跑得很干净,有些完全失败。
-   高对比上 C 和 D 统计等价(88±16 vs 88±16),所以 multi-zone
-   在简单场景上 essentially free,在困难场景上 essential — 是
-   dominant strategy。
+3. **Multi-zone 聚合在低对比上是必须,不是 optional**。Configuration
+   C(没有 multi-zone 的 Kalman)在低对比上只有 5 ± 11 % in-focus —
+   基本失败。加上最近 5 zone confidence-weighted 聚合把它提升到
+   47 ± 35 %。这个 9× 提升是矩阵里最大的单一改进。高对比上 C 和 D
+   统计等价(98.2 ± 0.9 vs 98.5 ± 0.4),所以 multi-zone 在简单
+   场景上免费,困难场景上必需 — 是 dominant strategy。
 
-4. **完整 V3 stack(配置 E)在低对比上过度约束,但在高对比上锁
-   最快**。Deadband + PID + CDAF fusion 改进机械平滑度,但在无
-   特征主体上无法可靠对焦(36 ± 44 %,变异度极高)。适合作为已知好光线 / 有
-   纹理主体的 *user-selectable* 模式,不是 universal default。
+4. **完整 V3 stack(配置 E)目前不推荐**。在 294-zone IMX461 仿真
+   上 E 得分低对比 37 ± 42 %,高对比 1 ± 9 %。之前在 single-strip
+   仿真上 work 的 deadband / PID 参数,跟 multi-zone 聚合 confidence
+   输入交互不良;repo 里持续 investigate。这里列出来是为了透明,
+   而不是作为推荐。
 
 我想特别指出高对比表里的一个数字:**baseline 评分是 52 ± 48 %**,
 意味着当前的单帧 PSR 阈值策略在大约一半的 seed 上成功,另一半灾难
