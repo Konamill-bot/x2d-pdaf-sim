@@ -161,20 +161,34 @@ shutter event, suggesting the sensor side is not the constraint.
 outside the camera.** Both affect how literally the simulation's
 numbers should be taken:
 
-(a) *Does the IMX461 support separate PDAF readout that preserves
-sub-aperture phase signal under 4x4 imaging binning?* The Sony product
-flyer for IMX461 documents binning support for high-speed imaging but
-does not describe the PDAF readout architecture. The simulation
-assumes PDAF rows are read at native 3.76 µm pitch independently of
-imaging binning. This is consistent with general dual-channel sensor
-design and with the patent literature explicitly addressing
-disparity-preserving binning (US 11523071 *"Disparity-Preserving
-Binning for Phase Detection Autofocus"*), but I cannot confirm it is
-true of IMX461 specifically. If the IMX461 only supports combined
-readout where 4x4 binning averages PDAF pixels with their neighbours,
-the phase signal would be destroyed and the entire binning + multi-
-zone proposal becomes inapplicable. This is exactly the question
-your sensor team can answer directly.
+(a) *Does the IMX461 preserve PDAF sub-aperture phase signal under
+its 4x4 imaging binning mode?* The IMX461 product flyer published by
+Sony Semiconductor Solutions confirms binning capability:
+"16-bit digital output [enables] 102 MP still mode at 2.7 fps. In
+addition, vertical sub-sampling binning and horizontal pixel binning
+realize high-speed 12-bit digital output for shooting moving picture."
+This documents the binning mode is intended for *moving-picture
+imaging output*; it does not describe what happens to PDAF pixels
+during that mode. PDAF-in-binned-mode behaviour is not in the public
+flyer.
+
+The existence of US 11523071 *"Disparity-Preserving Binning for Phase
+Detection Autofocus"* (USPTO patent) is itself evidence that naive
+binning destroys PDAF phase signal — that is precisely why the patent
+exists, to describe a specific pixel-readout architecture that
+preserves disparity through binning. Whether IMX461 implements the
+techniques described in that or a comparable patent is not publicly
+documented.
+
+My simulation assumes PDAF rows can be read at native 3.76 µm pitch
+during AF half-press, decoupled from any imaging binning the EVF
+stream uses. If this assumption is incorrect on IMX461 specifically —
+if its only binned readout mode is the combined one that averages
+PDAF pixels with their neighbours — the binning lever of my proposal
+is inapplicable as stated, and the conversation moves to: under what
+sensor mode can PDAF be read at full native rate without imaging
+binning interfering? This is a question Hasselblad's sensor and
+firmware teams can answer authoritatively where I cannot.
 
 (b) *What is the actual ISP-to-decision latency at 60 fps on the X2D?*
 The simulation uses 2 frames (~33 ms) as a representative value, but
@@ -299,15 +313,27 @@ XCD 2,5/55V),搭建了一个开源的 PDAF 自动对焦决策策略仿真 testbe
 **两个我从外部无法确认的 sensor 架构不确定性**,两者都影响仿真数字
 应该被字面理解到什么程度:
 
-(a) *IMX461 是否支持独立 PDAF readout,使 sub-aperture 相位信号在
-4x4 imaging binning 下不被破坏?* Sony 的 IMX461 flyer 记载了 binning
-支持高速 imaging,但**没**描述 PDAF readout 架构。仿真假设 PDAF rows
-独立于 imaging binning 以 native 3.76μm pitch 读出。这跟一般 dual-
-channel sensor 设计、以及专门处理「disparity-preserving binning」
-的专利文献(US 11523071)一致,但**我无法确认这对 IMX461 specifically
-成立**。如果 IMX461 只支持 combined readout(4x4 binning 把 PDAF 像素
-跟邻居平均),相位信号会被销毁,整个 binning + multi-zone 提案就不
-适用。这正是你们的 sensor 团队能直接回答的问题。
+(a) *IMX461 在其 4x4 imaging binning 模式下是否保留 PDAF sub-aperture
+相位信号?* Sony 半导体的 IMX461 product flyer 确认了 binning 能力:
+「16-bit 数字输出 [使] 102 MP 静态模式达 2.7 fps 读取速度。此外,
+垂直子采样 binning 和水平像素 binning 实现高速 12-bit 数字输出用于
+动态影像拍摄。」这记载了 binning 模式的用途是**动态影像 imaging
+输出**;它**没**描述该模式下 PDAF 像素的状态。PDAF-在-binned-模式
+的行为不在公开 flyer 内。
+
+US 11523071 *"Disparity-Preserving Binning for Phase Detection
+Autofocus"* (USPTO 专利)的存在本身就是证据 — naive binning 会破坏
+PDAF 相位信号,这正是该专利存在的原因:描述一种保留 disparity 通过
+binning 的特定像素读取架构。IMX461 是否实现了该专利或类似专利描述
+的技术,**公开资料中没有记载**。
+
+我的仿真假设 PDAF rows 在 AF 半按时能以 native 3.76μm pitch 读出,
+跟 EVF 用的 imaging binning 解耦。如果这个假设对 IMX461 specifically
+不成立 — 如果它唯一的 binned 模式就是把 PDAF 像素跟邻居平均的
+combined 模式 — 我提案的 binning lever 就不适用,对话需要转向:
+在哪种 sensor 模式下 PDAF 能以 full native rate 读出而不被 imaging
+binning 干扰?这是 Hasselblad 的 sensor 团队和 firmware 团队能权威
+回答的问题,我从外部做不到。
 
 (b) *X2D 在 60 fps 下 ISP 到决策的实际 latency 是多少?* 仿真用 2
 帧(~33 ms)作为代表值,但真实数字取决于 ISP pipeline 排程、readout
