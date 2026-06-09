@@ -246,6 +246,19 @@ above are independent of that mechanical limitation and would lift
 performance wherever the underlying lens can move at the required
 rate.
 
+(A side note, offered as informal signal rather than evidence.)
+An owner in an Asian medium-format community recently published a
+hands-on side-by-side comparison of the X2D, X2D II, GFX 100S, and
+GFX 100 II. Their report observes that the X2D II's AF, while
+"noticeably faster" than the original X2D, still appears slower than
+the GFX 100S — a 2021 body with neither LiDAR nor a deep-learning
+AF accelerator. This is one user's experience, not a controlled
+benchmark, and the pattern would need broader corroboration before
+being load-bearing. I mention it only because, if it is borne out,
+it would point at the firmware layer rather than the hardware as
+the binding AF-speed constraint — which is precisely what the rest
+of this letter argues from the simulation side.
+
 A note connecting this back to my Letter 1 AF-C question. The
 components in configuration D — a Kalman temporal prior over focus
 position, multi-zone confidence aggregation, and a higher AF
@@ -464,6 +477,15 @@ leaf shutter 模式下工作。Hasselblad 自己的产品说明把这个限制�
 的机身上,binding constraint 也不是机身硅片,而是旧镜头的机械对焦
 层。上面描述的 firmware 层 lever 跟这个机械限制无关,在底层镜头能
 以所需速率移动的地方,它们都能提升性能。
+
+(以下作为非正式信号附记,不作为证据。)亚洲一个 medium-format 社群的
+用家最近发布了 X2D、X2D II、GFX 100S、GFX 100 II 四机身手上 side-by-
+side 对比,报告 X2D II 的 AF 虽然"明显快了"过原 X2D,仍然比 GFX 100S
+(一台 2021 年、无 LiDAR、无 deep-learning AF accelerator 的机身)
+慢。这是单一用户的经验,不是 controlled benchmark,需要更广泛印证才能
+作为 load-bearing 论据。我提到它只因为:如果这个 pattern 被印证,它指向
+binding AF-speed constraint 是 firmware 层而不是硬件层 — 正是这封信
+从仿真侧 argue 的同一个结论。
 
 连接到 Letter 1 的 AF-C 问题:configuration D 用的元件(焦点位置
 Kalman 时间先验、multi-zone 信任度聚合、更高的 AF 决策帧率)正是
