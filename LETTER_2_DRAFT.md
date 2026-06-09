@@ -14,10 +14,11 @@ clear question.
 2. Verify Hasselblad has responded to Letter 1 (or 10 business days
    have passed from their acknowledgement) -- see "When to send"
    section at the end of this file.
-3. Skim the letter once for the 5 numbers that will hit hardest if
-   wrong: 1000 seeds, 86 ± 15 % (D low-contrast),
-   88 ± 16 % (D high-contrast), 52 ± 48 % (baseline high-contrast),
-   0.5 % mean SEM. These must match `out/full_stack_metrics.png`.
+3. Skim the letter once for the five numbers that hit hardest if
+   wrong: 1000 seeds, 47 ± 35 % (D low-contrast IMX461 sim),
+   98.5 ± 0.4 % (D high-contrast), 64.6 ± 43 % (baseline high-contrast),
+   5 ± 11 % (C alone low-contrast). These must match
+   `out/imx461_full_stack_metrics.png`.
 4. Optional but recommended: have a second person (or another model)
    re-read the English version for tone before sending.
 
@@ -203,22 +204,14 @@ requires the policy to advance its state estimate forward by N frames
 before applying the delayed measurement — the standard
 predictive-AF maths used by every modern AF system.
 
-**One general epistemic limit beyond the two above.** This study
-assumes a baseline algorithm whose simulated output behaviour matches
-what I observe on my X2D — hunting in low contrast, stochastic
-same-scene response, near-focus failure. That match is consistent
-with the baseline genuinely lacking the techniques in configuration D,
-but it is also consistent with the X2D's firmware already
-incorporating some or all of them and being limited elsewhere
-(tuning, ISP scheduling, motor driver). The firmware is encrypted
-and I cannot verify which is true from outside. The simulation's
-purpose is therefore to demonstrate that the techniques are
-*algorithmically feasible* on a 294-zone PDAF architecture, not to
-claim knowledge of what is or is not in Hasselblad's internal
-codebase. Either way the question I am asking is meaningful: if the
-techniques are not yet present, configuration D suggests they would
-help; if they are present but the result is still the observed
-hunting, that itself is information you alone can interpret.
+**One general epistemic limit beyond the two above.** The X2D
+firmware is closed; observed behaviour is consistent with the
+techniques in configuration D being absent, but equally consistent
+with them being present and limited elsewhere (tuning, ISP
+scheduling, motor driver). The simulation demonstrates these
+techniques are *algorithmically feasible* on 294-zone PDAF
+architecture — it does not claim knowledge of Hasselblad's internal
+codebase. Either reading makes the question worth asking.
 
 These observations are anchored by direct comparison with my own Sony
 A7 IV (which on an all-white wall produces a single ~0.7 second hunt
@@ -227,15 +220,13 @@ Fujifilm achieved substantial AF improvements from GFX 100S to
 GFX 100S II without changing PDAF hardware — purely through what
 Capture Integration called an "improved predictive AF algorithm."
 
-I am aware the X2D II 100C addresses AF via LiDAR. LiDAR provides
-range and is a meaningful hardware improvement; it does not, however,
-solve the failure modes I infer from my observations — in particular
-a near-focus AF failure consistent with PDAF correlation-peak
-broadening at zero defocus, and stochastic same-scene behaviour
-consistent with a stateless single-frame decision policy. The
-binning + Kalman + multi-zone combination above (configuration D) has independent
-value on the X2D 100C — it would address those firmware-level failure
-modes whether or not LiDAR is present.
+A note on the X2D II 100C's LiDAR. LiDAR provides direct range and
+is a real hardware capability. The specific failure modes I infer
+from my X2D observations — a near-focus AF failure consistent with
+PDAF correlation-peak broadening at zero defocus, and stochastic
+same-scene behaviour consistent with stateless single-frame
+decisions — are firmware-level and orthogonal to range sensing.
+Configuration D would address them whether LiDAR is present or not.
 
 A note connecting this back to my Letter 1 AF-C question. The
 components in configuration D — a Kalman temporal prior over focus
@@ -344,15 +335,11 @@ latency buffering 会完全破坏高对比性能**(配置 D 在 naive 2 帧延�
 的 latency 处理需要 policy 在应用延迟测量前把状态预测前推 N 帧 —
 现代 AF 系统都用的标准 predictive-AF 算法。
 
-**除上述两点之外的一个 general 认知限制**:
-其仿真输出行为(hunting、随机性、近焦点失败)跟我在 X2D 上观察到的
-吻合。这个吻合**既可能**意味着 X2D 固件确实缺少 configuration D 里
-的技术,**也可能**意味着 X2D 已经有这些技术但被别处限制(参数调校、
-ISP 排程、马达驱动)。固件加密,从外部无法验证哪个为真。仿真的目的
-是证明这些技术在 294-zone PDAF 架构上**算法上可行**,不是 claim
-知道 Hasselblad 内部代码状态。无论哪种情况,问题都是 meaningful 的:
-如果技术还没用,configuration D 提示它们会有帮助;如果已经用了但
-结果仍是观察到的 hunting,那本身就是只有你们能解读的信息。
+**除上述两点之外的一个 general 认知限制**:X2D 固件加密,观察到的
+行为既可能意味着 configuration D 的技术真的缺失,也可能意味着这些
+技术已经存在但被别处限制(参数调校、ISP 排程、马达驱动)。仿真证明
+这些技术在 294-zone PDAF 架构上**算法上可行**,不 claim 知道 Hasselblad
+内部代码状态。无论哪种解读,问题都值得问。
 
 报告基于 1000 seed 平均的完整 lever-by-lever 实验
 (`scripts/run_full_stack_stats.py`,`out/full_stack_metrics.png`)
@@ -437,11 +424,10 @@ shutter event 时已经稳定支持的 full 100 MP readout 带宽相当,
 在不更换 PDAF 硬件的前提下大幅改进 AF 的公开证据(Capture
 Integration 称之为 "improved predictive AF algorithm")。
 
-我知道 X2D II 100C 用 LiDAR 解决 AF 问题。LiDAR 提供测距,是有意义
-的硬件改进;但它并不解决我识别的失败模式(特别是近焦点 PSR
-confidence 下降和无状态单帧决策策略)。上述 binning + Kalman 组合
-(配置 C)在 X2D 100C 上有独立价值 — 无论 LiDAR 在不在,它都能解决
-这些 firmware-level 失败模式。
+关于 X2D II 100C 的 LiDAR:LiDAR 提供直接测距,是真实硬件能力。
+我从 X2D 观察推断的失败模式(近焦点 PSR confidence 下降、单帧无状态
+决策的随机性)是 firmware-level,跟测距正交。configuration D 不论
+LiDAR 在不在都能解决它们。
 
 连接到 Letter 1 的 AF-C 问题:configuration D 用的元件(焦点位置
 Kalman 时间先验、multi-zone 信任度聚合、更高的 AF 决策帧率)正是
