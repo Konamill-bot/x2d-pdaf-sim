@@ -62,15 +62,15 @@ intended as a shared frame of reference so any technical discussion we
 might have starts from the same definitions.
 
 I want to lead with the most important finding from the full
-lever-by-lever experiment (`scripts/run_full_stack_stats.py`,
-`out/full_stack_metrics.png`), based on 1000 independent seeds per
-configuration: **the combination that produces a reliable win across
-both low-contrast and high-contrast scenes is sensor binning + Kalman
+lever-by-lever experiment (`scripts/run_imx461_stats.py`,
+`out/imx461_full_stack_metrics.png`), based on 1000 independent
+seeds per configuration on the 294-zone IMX461 simulator:
+**the combination that produces a reliable win across both
+low-contrast and high-contrast scenes is sensor binning + Kalman
 temporal prior + multi-zone confidence aggregation.** Earlier
-single-seed runs in this study showed misleading results (different
-seeds favoured different configurations); reporting now with
-1000-seed means and standard deviations is what changed the
-recommendation.
+runs at fewer seeds showed misleading results (different seeds
+favoured different configurations); reporting now with 1000-seed
+means and standard deviations is what changed the recommendation.
 
 All numbers below come from a simulation modelled on the Sony IMX461
 sensor used in the X2D 100C: 21 × 14 = 294 PDAF zones tiled across
@@ -342,7 +342,7 @@ latency buffering 会完全破坏高对比性能**(配置 D 在 naive 2 帧延�
 内部代码状态。无论哪种解读,问题都值得问。
 
 报告基于 1000 seed 平均的完整 lever-by-lever 实验
-(`scripts/run_full_stack_stats.py`,`out/full_stack_metrics.png`)
+(`scripts/run_imx461_stats.py`,`out/imx461_full_stack_metrics.png`)
 最重要的发现:**在低对比和高对比场景都可靠获胜的组合,是 sensor
 binning + Kalman 时间先验 + multi-zone 信任度聚合(配置 D)**。
 另外一个重要发现:**high-contrast 上 baseline 评分是 56 ± 48 %**,
