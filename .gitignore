@@ -13,3 +13,7 @@ build/
 dist/
 .pytest_cache/
 .mypy_cache/
+
+# Private deployment / strategy docs — never commit
+GITHUB_PUSH.md
+DEPLOYMENT_PLAN*.md
