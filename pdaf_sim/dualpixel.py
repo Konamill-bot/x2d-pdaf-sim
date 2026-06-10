@@ -5,6 +5,15 @@ from scipy.signal import fftconvolve
 from .psf import disk_kernel, coc_radius_px
 
 
+def _subpixel_shift_x(img: np.ndarray, dx: float) -> np.ndarray:
+    """Shift image along axis=1 by a (possibly sub-pixel) amount via FFT."""
+    n = img.shape[1]
+    f = np.fft.rfft(img, axis=1)
+    k = np.fft.rfftfreq(n)
+    f *= np.exp(-2j * np.pi * k * dx)[None, :]
+    return np.fft.irfft(f, n, axis=1).astype(np.float32)
+
+
 def _bin_2d(img: np.ndarray, factor: int) -> np.ndarray:
     """Mean-pool image by integer factor (binning). Crops to multiple."""
     if factor <= 1:
@@ -30,14 +39,26 @@ def render_lr(sharp: np.ndarray, defocus_mm: float, f_mm: float, fnum: float,
     X2D does it aggressively.
     """
     r = coc_radius_px(defocus_mm, f_mm, fnum, subject_dist_mm, pixel_pitch_um)
-    if r < 0.6:
+    if r < 0.05:
         L = sharp.copy()
         R = sharp.copy()
     else:
-        kL = disk_kernel(r, half='L')
-        kR = disk_kernel(r, half='R')
-        L = fftconvolve(sharp, kL, mode='same')
-        R = fftconvolve(sharp, kR, mode='same')
+        # Sub-aperture model: blur by the full defocus disk, then shift
+        # L and R by the half-disk centroid offset (+/- 4r/3pi) via
+        # Fourier sub-pixel shift. The displacement -- which is the PDAF
+        # signal -- is exact at any magnitude, including deep sub-pixel.
+        # (A discrete half-disk kernel quantizes to a delta below ~1 px
+        # radius, creating an artificial dead zone ~0.3 mm wide; real
+        # masked-pixel PDAF resolves sub-pixel disparity, so the shift
+        # must be modelled continuously.)
+        # Sign: front- vs back-focus mirrors the shift direction.
+        if r >= 0.6:
+            blurred = fftconvolve(sharp, disk_kernel(r, half=None), mode='same')
+        else:
+            blurred = sharp
+        c = 4.0 * r / (3.0 * np.pi) * (-1.0 if defocus_mm < 0 else 1.0)
+        L = _subpixel_shift_x(blurred, +c)
+        R = _subpixel_shift_x(blurred, -c)
     if noise_sigma > 0:
         # Binning averages noise -> sigma scales by 1/factor.
         eff_sigma = noise_sigma / max(1, bin_factor)

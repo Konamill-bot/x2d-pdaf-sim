@@ -1,13 +1,19 @@
-"""Sensitivity of config D in-focus % to ISP latency in {0, 1, 2, 3} frames.
+"""Latency sensitivity of config D: naive vs timestamp-compensated.
 
-Uses the same IMX461 294-zone simulator as run_imx461_stats.py but
-sweeps the latency parameter. Important caveat: this uses NAIVE
-latency buffering -- the policy is not predict-forward compensated.
-Real implementations would compensate. The point of this experiment
-is to show how badly uncompensated latency degrades performance, NOT
-to suggest performance under properly-compensated latency.
+Two ways to handle a measurement that arrives N frames late:
 
-Output: out/latency_sensitivity.png
+  NAIVE        : fuse it against the CURRENT lens position. The
+                 disparity was measured against where the lens was N
+                 frames ago, so the implied focus target is wrong by
+                 however far the lens moved since -- the policy chases
+                 stale references and can oscillate.
+
+  COMPENSATED  : fuse it against the lens position AT CAPTURE TIME
+                 (timestamp-correct association). The implied target
+                 is right regardless of subsequent lens motion. This
+                 is the standard predictive-AF bookkeeping.
+
+Output: out/latency_sensitivity.png  (300 seeds, mean +/- std)
 """
 from __future__ import annotations
 import os
@@ -17,104 +23,110 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import matplotlib.pyplot as plt
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pdaf_sim.policy import TemporalPolicy
+from run_imx461_stats import (
+    SCENES, zone_scene, aggregate_multi_zone, make_policy,
+    N_QUERY_ZONES, MOTOR_MM_PER_S, WINDOW_S, TRUTH_MM,
+)
 from pdaf_sim.latency import LatencyBuffer
 from pdaf_sim.sensor_imx461 import SIM_W_PX, SIM_H_PX, nearest_zones
 
-# Import shared bits from the IMX461 stats script
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from run_imx461_stats import (
-    SCENES, aggregate_multi_zone, N_QUERY_ZONES, N_FRAMES, make_policy,
-)
-
-LATENCY_FRAMES = [0, 1, 2, 3]
 N_SEEDS = 300
+FPS = 60
+LATENCIES = [0, 1, 2, 3]
 
 
-def run_trial(seed, scene_kind, latency_frames):
+def run_trial(seed: int, scene_kind: str, latency: int, naive: bool):
     rng = np.random.default_rng(seed)
     noise_rng = np.random.default_rng(seed + 100)
     subj_xy = (SIM_W_PX // 2, SIM_H_PX // 2)
     zones_used = nearest_zones(subj_xy[0], subj_xy[1], N_QUERY_ZONES)
+    patches = [zone_scene(z, subj_xy, scene_kind, rng) for z in zones_used]
+
+    n_frames = int(WINDOW_S * FPS)
+    max_step = MOTOR_MM_PER_S / FPS
     policy = make_policy('temporal')
-    buf = LatencyBuffer(latency_frames)
-    truth = 2.5
+    buf = LatencyBuffer(latency)
+
     lens = 0.0
     cmds = []
-    for k in range(N_FRAMES):
-        err_mm = lens - truth
-        meas = aggregate_multi_zone(zones_used, subj_xy, scene_kind,
-                                    err_mm, rng, noise_rng)
-        stale = buf.push_pop(meas) if latency_frames > 0 else meas
-        if stale is None:
-            cmds.append(lens); continue
-        d_mm, conf, _ = stale
-        dec = policy.step(d_mm, conf, lens)
-        lens = dec.lens_cmd
+    for _ in range(n_frames):
+        err_mm = lens - TRUTH_MM
+        d, c, s = aggregate_multi_zone(patches, err_mm, noise_rng)
+        item = buf.push_pop((d, c, lens)) if latency > 0 else (d, c, lens)
+        if item is None:
+            cmds.append(lens)
+            continue
+        d_mm, conf, lens_at_capture = item
+        ref = lens if naive else lens_at_capture
+        dec = policy.step(d_mm, conf, ref)
+        lens += float(np.clip(dec.lens_cmd - lens, -max_step, max_step))
         cmds.append(lens)
-    cmds = np.array(cmds)
-    err = cmds - truth
+
+    err = np.array(cmds) - TRUTH_MM
     return float(np.mean(np.abs(err) < 0.3)) * 100
 
 
 def _worker(args):
-    seed, scene, lat = args
-    return (scene, lat, run_trial(seed, scene, lat))
+    seed, scene, lat, naive = args
+    return (scene, lat, naive, run_trial(seed, scene, lat, naive))
 
 
 def main():
     os.makedirs('out', exist_ok=True)
-    jobs = [(s, sc, l) for s in range(N_SEEDS) for sc in SCENES
-            for l in LATENCY_FRAMES]
-    print(f"Running {len(jobs)} jobs ({N_SEEDS} seeds x {len(SCENES)} scenes "
-          f"x {len(LATENCY_FRAMES)} latency values)...")
+    jobs = [(seed, scene, lat, naive)
+            for seed in range(N_SEEDS)
+            for scene in SCENES
+            for lat in LATENCIES
+            for naive in (True, False)]
+    print(f"Running {len(jobs)} jobs...")
     t0 = time.time()
     with ProcessPoolExecutor() as pool:
-        out = list(pool.map(_worker, jobs, chunksize=10))
+        results = list(pool.map(_worker, jobs, chunksize=25))
     print(f"Done in {time.time() - t0:.1f} s.")
 
     agg = {}
-    for sc, lat, ifc in out:
-        agg.setdefault(sc, {}).setdefault(lat, []).append(ifc)
+    for scene, lat, naive, v in results:
+        agg.setdefault((scene, naive), {}).setdefault(lat, []).append(v)
 
-    print(f"\nNaive-latency sensitivity of config D ({N_SEEDS} seeds, mean +/- std):\n")
-    print(f"{'scene':<16}" + "".join(f"{f'lat={l}f':>14}" for l in LATENCY_FRAMES))
-    print('-' * 70)
-    for sc in SCENES:
-        row = sc.ljust(16)
-        for l in LATENCY_FRAMES:
-            arr = np.array(agg[sc][l])
-            row += f"{arr.mean():>5.1f} +/- {arr.std():>4.1f}"
-        print(row)
+    print(f"\nConfig D in-focus %, {N_SEEDS} seeds (naive vs compensated):")
+    print(f"{'scene':<15}{'mode':<14}" + ''.join(f"lat={l}f".rjust(12) for l in LATENCIES))
+    print('-' * 78)
+    for scene in SCENES:
+        for naive in (True, False):
+            row = agg[(scene, naive)]
+            mode = 'naive' if naive else 'compensated'
+            cells = ''.join(
+                f"{np.mean(row[l]):6.1f}+/-{np.std(row[l]):4.1f}".rjust(12)
+                for l in LATENCIES)
+            print(f"{scene:<15}{mode:<14}{cells}")
 
-    # Plot
     plt.rcParams.update({'font.size': 12})
-    fig, ax = plt.subplots(figsize=(11, 6))
-    x = np.arange(len(LATENCY_FRAMES))
-    w = 0.35
-    for i, sc in enumerate(SCENES):
-        means = [np.mean(agg[sc][l]) for l in LATENCY_FRAMES]
-        stds = [np.std(agg[sc][l]) for l in LATENCY_FRAMES]
-        ax.bar(x + (i - 0.5) * w, means, w, yerr=stds, capsize=5,
-               label=sc, alpha=0.85, edgecolor='black')
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"{l} frame ({l*16.7:.0f} ms)" for l in LATENCY_FRAMES])
-    ax.set_ylabel('in-focus % (err < 0.3 mm)', fontsize=12)
-    ax.set_xlabel('Naive ISP latency (no predict-forward compensation)',
-                  fontsize=12)
-    ax.set_ylim(0, 110)
-    ax.set_title(
-        'Config D sensitivity to UNCOMPENSATED ISP latency\n'
-        '(294-zone IMX461 sim, 300 seeds — compensated latency would recover this)',
-        fontsize=13, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, axis='y', alpha=0.3)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    for ax, scene in zip(axes, SCENES):
+        for naive, style, label in ((True, 'o--', 'naive (fuse vs current lens)'),
+                                    (False, 's-', 'compensated (fuse vs lens at capture)')):
+            row = agg[(scene, naive)]
+            means = [np.mean(row[l]) for l in LATENCIES]
+            stds = [np.std(row[l]) for l in LATENCIES]
+            ax.errorbar(LATENCIES, means, yerr=stds, fmt=style,
+                        capsize=5, linewidth=2, markersize=8, label=label)
+        ax.set_title(scene, fontsize=14, fontweight='bold')
+        ax.set_xlabel('ISP latency (frames @ 60 fps)')
+        ax.set_ylabel('in-focus % (err < 0.3 mm)')
+        ax.set_xticks(LATENCIES)
+        ax.set_ylim(-5, 105)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='best', fontsize=10)
+    fig.suptitle('Config D under ISP latency: timestamp-correct association '
+                 'vs naive fusion  (IMX461 v3 sim, 300 seeds)',
+                 fontsize=13, fontweight='bold')
     fig.tight_layout()
-    out_path = os.path.join('out', 'latency_sensitivity.png')
-    fig.savefig(out_path, dpi=200, bbox_inches='tight')
-    print(f"\nSaved -> {out_path}")
+    out = os.path.join('out', 'latency_sensitivity.png')
+    fig.savefig(out, dpi=200, bbox_inches='tight')
+    print(f"\nSaved -> {out}")
 
 
 if __name__ == '__main__':

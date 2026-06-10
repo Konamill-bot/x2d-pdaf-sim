@@ -32,6 +32,8 @@ class Decision:
 class StatelessPolicy:
     tau: float = 0.35
     sweep_step: float = 5.0
+    scan_lo: float = -0.5
+    scan_hi: float = 6.0
     _last_cmd: float = 0.0
     _sweep_dir: int = 1
 
@@ -40,9 +42,13 @@ class StatelessPolicy:
             cmd = lens_pos - disparity  # drive toward zero disparity
             self._last_cmd = cmd
             return Decision(lens_cmd=cmd, swept=False)
-        # Low confidence -> CDAF hill-climb: step in current direction.
+        # Low confidence -> CDAF fallback: monotonic bounded scan
+        # (reverse only at travel limits; alternating +/- jitters in
+        # place and can never reach a distant target).
         cmd = lens_pos + self._sweep_dir * self.sweep_step
-        self._sweep_dir *= -1  # naive bidirectional sweep
+        if cmd > self.scan_hi or cmd < self.scan_lo:
+            self._sweep_dir *= -1
+            cmd = lens_pos + self._sweep_dir * self.sweep_step
         return Decision(lens_cmd=cmd, swept=True)
 
 
@@ -58,6 +64,8 @@ class TemporalPolicy:
     process_var: float = 0.5
     meas_var_base: float = 1.0
     sweep_step: float = 5.0
+    scan_lo: float = -0.5                # monotonic-scan bounds for the
+    scan_hi: float = 6.0                 # low-confidence fallback
     _x: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
     _P: np.ndarray = field(default_factory=lambda: np.eye(2) * 10.0)
     _sweep_dir: int = 1
@@ -70,9 +78,13 @@ class TemporalPolicy:
         self._P = F @ self._P @ F.T + Q
 
         if confidence < self.tau_sweep:
-            # Truly ambiguous -- give up and CDAF sweep this frame.
+            # Truly ambiguous -- CDAF fallback. Scan MONOTONICALLY and
+            # reverse only at the travel bounds; an alternating +/- step
+            # jitters in place and can never reach a distant target.
             cmd = lens_pos + self._sweep_dir * self.sweep_step
-            self._sweep_dir *= -1
+            if cmd > self.scan_hi or cmd < self.scan_lo:
+                self._sweep_dir *= -1
+                cmd = lens_pos + self._sweep_dir * self.sweep_step
             return Decision(lens_cmd=cmd, swept=True)
 
         # Update with PDAF measurement, weighted by confidence.
@@ -277,12 +289,15 @@ class V3Policy:
         self._P = F @ self._P @ F.T + Q
 
         if pdaf_conf < self.tau_sweep and abs(cdaf_grad) < 1e-4:
-            # Both signals unusable -> CDAF blind sweep (or give up)
+            # Both signals unusable -> CDAF blind sweep (or give up).
+            # Monotonic bounded scan, same rationale as TemporalPolicy.
             self._low_conf_streak += 1
             if self._low_conf_streak >= self.give_up_after_frames:
                 return Decision(lens_cmd=lens_pos, swept=False)
             cmd = lens_pos + self._sweep_dir * self.sweep_step
-            self._sweep_dir *= -1
+            if cmd > 6.0 or cmd < -0.5:
+                self._sweep_dir *= -1
+                cmd = lens_pos + self._sweep_dir * self.sweep_step
             return Decision(lens_cmd=cmd, swept=True)
         self._low_conf_streak = 0
 

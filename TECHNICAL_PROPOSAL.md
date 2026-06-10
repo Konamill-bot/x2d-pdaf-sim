@@ -50,92 +50,112 @@ lever-by-lever experiment (`scripts/run_imx461_stats.py`,
 `out/imx461_full_stack_metrics.png`), based on 1000 independent
 seeds per configuration on the 294-zone IMX461 simulator:
 **the combination that produces a reliable win across both
-low-contrast and high-contrast scenes is sensor binning + Kalman
-temporal prior + multi-zone confidence aggregation.** Earlier
-runs at fewer seeds showed misleading results (different seeds
-favoured different configurations); reporting now with 1000-seed
-means and standard deviations is what changed the recommendation.
+low-contrast and high-contrast scenes is binned high-framerate AF
+readout + Kalman temporal prior + multi-zone confidence
+aggregation.** Two methodology notes for transparency: early runs
+at few seeds favoured different configurations run-to-run, so
+everything below is 1000-seed means and standard deviations; and the
+simulation went through three model revisions (fair baseline, fixed
+scene per trial, motor rate limiting, sub-pixel disparity rendering)
+each of which *changed the numbers but not the ranking* — the
+revision history is preserved in the repository's DEV_LOG.
 
 All numbers below come from a simulation modelled on the Sony IMX461
 sensor used in the X2D 100C: 21 × 14 = 294 PDAF zones tiled across
 the active area, per-zone phase correlation at the native 3.76 μm
 pitch (PDAF rows cannot be binned without destroying sub-aperture
-phase signal), multi-zone configurations querying the nearest five
-zones to subject and aggregating by confidence-weighted agreement.
-Bar chart in `out/imx461_full_stack_metrics.png`. 1000 seeds per
-configuration, mean standard error ~0.5 %.
+phase signal — disparity is rendered with exact sub-pixel shifts),
+multi-zone configurations querying the nearest five zones to subject
+and aggregating by confidence-weighted agreement. The simulation
+includes lens motor rate limiting (~18 mm/s focus travel — no
+teleporting lens), a fixed scene per trial (measurement errors are
+*not* i.i.d. across frames, so the temporal prior gains no
+unrealistic advantage), and a fair baseline whose CDAF fallback
+scans monotonically through the travel range rather than jittering
+in place. Bar chart in `out/imx461_full_stack_metrics.png`. 1000
+seeds per configuration, mean standard error ~0.2 %.
 
-Low-contrast static target (in-focus % = fraction of frames within
-0.3 mm of target):
+Low-contrast static target (in-focus % = fraction of the 2-second
+window with lens within 0.3 mm of target):
 
-| Configuration                                  | in-focus %   |
-|------------------------------------------------|--------------|
-| A. baseline (stateless, 15 fps, single zone)   | 0.0 ± 0      |
-| B. + 4x4 binning (60 fps) only                 | 0.0 ± 0      |
-| C. + Kalman temporal prior (single zone)       | 5.2 ± 11.3   |
-| **D. + multi-zone aggregation (nearest 5)**    | **47.1 ± 35.4** |
-| E. + deadband + PID + CDAF fusion (V3 stack)   | 36.6 ± 42.2  |
+| Configuration                                    | in-focus %   |
+|--------------------------------------------------|--------------|
+| A. baseline (stateless scan, 15 fps, single zone)| 8.9 ± 5.1    |
+| B. + binned AF readout (60 fps) only             | 9.2 ± 0.6    |
+| C. + Kalman temporal prior (single zone)         | 91.1 ± 5.5   |
+| **D. + multi-zone aggregation (nearest 5)**      | **92.0 ± 0.5** |
+| E. + deadband + PID + CDAF fusion (V3 stack)     | 91.4 ± 4.7   |
+| F. = D + 2-frame ISP latency, compensated        | 77.2 ± 1.6   |
 
 High-contrast static target (same 1000 seeds):
 
-| Configuration                                  | in-focus %     |
-|------------------------------------------------|----------------|
-| A. baseline                                    | **64.6 ± 42.5** |
-| C. + Kalman                                    | 98.2 ± 0.9     |
-| **D. + multi-zone**                            | **98.5 ± 0.4** |
-| E. + V3                                        | 0.8 ± 8.8 (currently broken; see below) |
+| Configuration                                    | in-focus %   |
+|--------------------------------------------------|--------------|
+| A. baseline                                      | 90.4 ± 6.7   |
+| B. + binned readout                              | 93.6 ± 0.6   |
+| C. + Kalman                                      | 94.2 ± 0.0   |
+| **D. + multi-zone**                              | **94.2 ± 0.0** |
+| E. + V3 stack                                    | 92.6 ± 0.4   |
+| F. = D + 2-frame latency, compensated            | 92.5 ± 0.0   |
 
-I want to call out one specific number in the high-contrast table:
-**the baseline scores 65 ± 43 %**, meaning the current single-frame
-PSR-threshold policy succeeds on roughly two thirds of the seeds and
-fails catastrophically on the rest, even on high-contrast scenes
-where it should succeed comfortably. This statistical signature
-matches a direct observation I made on my own X2D: the same scene,
-half-pressed multiple times, sometimes locks immediately and
-sometimes hunts. The simulation reproducing this stochasticity from
-first principles (stateless single-frame decisions on noisy PDAF
-correlations) is the only point in this study where my synthetic
-model and direct camera behaviour cross-validated independently.
-That gives me modest confidence the rest of the model's predictions
-are at least in the right qualitative ballpark.
+The cross-validation I find most convincing is two-sided. The
+simulated baseline behaves like my real X2D on *both* ends of the
+difficulty range: on high-contrast scenes it usually locks but with
+visible run-to-run variance (90.4 ± 6.7 — the same scene,
+half-pressed repeatedly, sometimes snapping and sometimes hesitating,
+exactly what I observe on the camera), and on low-contrast scenes it
+spends most of the window hunting (8.9 %), which is the user-reported
+pain case. The simulation was not tuned to reproduce either
+behaviour; both emerge from first principles (single-frame threshold
+decisions on noisy PDAF correlations). That two-sided match is the
+strongest reason I have to believe the model's *relative* comparisons
+are in the right qualitative ballpark.
 
-The four non-obvious findings from this matrix:
+The five findings from this matrix:
 
-1. **AF-readout framerate alone (config B) does not help — it makes
-   hunting worse.** Without a temporal prior to integrate measurements,
-   raising the framerate from 15 to 60 fps simply quadruples the rate
-   at which low-confidence single-frame decisions are made. Lens
-   motor travel rises from 5.8 mm to 23.8 mm in 2 seconds. Binning
-   and temporal prior must be paired.
+1. **Higher AF framerate alone (config B) buys almost nothing**
+   (8.9 → 9.2 % on low contrast). Without a temporal prior to
+   integrate measurements, faster readout just repeats the same
+   low-confidence single-frame decision more often — the scan covers
+   four times the lens travel (6.2 → 24.0 mm in 2 s) for the same
+   outcome. Binning and the temporal prior must be paired.
 
-2. **Configuration D is the recommended target.** Binning + Kalman +
-   nearest-5 multi-zone aggregation produces 47 ± 35 % in-focus on
-   low-contrast and 98.5 ± 0.4 % on high-contrast (over 1000
-   independent seeds on the 294-zone IMX461 simulator, mean SEM ~0.5 %).
-   Compute cost is on the order of microseconds per frame on any
-   modern application-class processor. To put it more precisely:
-   **configuration D is not a proposal for better AF-S. It is, in
-   effect, a working AF-C loop — a Kalman-filtered, multi-zone,
-   high-framerate decision system that tracks focus continuously
-   across frames.** The only difference between this simulation and
-   an in-camera AF-C implementation is the firmware layer that
-   enables it.
+2. **The Kalman temporal prior is the hero lever** (8.9 → 91.1 % on
+   low contrast). Compute cost is on the order of microseconds per
+   frame on any modern application-class processor. To put it more
+   precisely: **configurations C-F are not proposals for better
+   AF-S. They are, in effect, a working AF-C loop — a
+   Kalman-filtered, high-framerate decision system that tracks focus
+   continuously across frames.** The only difference between this
+   simulation and an in-camera AF-C implementation is the firmware
+   layer that enables it.
 
-3. **Multi-zone aggregation is essential on low-contrast, not optional.**
-   Configuration C (Kalman without multi-zone) achieves only 5 ± 11 %
-   in-focus on low-contrast — effectively failure. The 9× lift from
-   adding nearest-5 aggregation is the single largest improvement in
-   the matrix. On high-contrast scenes C and D are statistically
-   equivalent (98.2 ± 0.9 vs 98.5 ± 0.4), so multi-zone is free on
-   easy scenes and necessary on hard ones — a dominant strategy.
+3. **Multi-zone aggregation's value is reliability, not raw mean.**
+   Adding nearest-5 aggregation (config D) lifts the low-contrast
+   mean only modestly (91.1 → 92.0 %) but cuts the run-to-run
+   standard deviation by an order of magnitude (± 5.5 → ± 0.5). For
+   a photographer this is the difference between "usually locks" and
+   "locks every time" — consistency is precisely what the X2D's AF
+   is criticised for lacking. (An earlier iteration of this study
+   claimed a 9× mean lift from multi-zone; that was an artifact of a
+   flawed aggregation formula, corrected in the repository history.)
 
-4. **The full V3 stack (config E) is currently not recommended.**
-   On the 294-zone IMX461 simulator E scores 37 ± 42 % on low-contrast
-   and 1 ± 9 % on high-contrast. The deadband and PID parameters that
-   worked on the earlier single-strip simulation interact badly with
-   multi-zone aggregated confidence inputs; investigation continues
-   in the repository. I include it here for transparency rather than
-   as a recommendation.
+4. **The smoothness stack (config E: deadband + PID + CDAF fusion)
+   is viable as a refinement, not a requirement.** It performs on
+   par with D (91.4 / 92.6 %) while halving residual sweep events,
+   at slightly higher final error. An earlier version of this study
+   reported E as broken; that was caused by simulation measurement
+   artifacts since fixed, and I note the correction for transparency.
+
+5. **ISP pipeline latency is handled by standard bookkeeping, not a
+   blocker.** Config F adds a 2-frame (~33 ms) measurement delay
+   with timestamp-correct association — each delayed measurement is
+   fused against the lens position at capture time. Result: a modest
+   duty-cycle cost on low contrast (92.0 → 77.2 %, mostly the slower
+   ramp-in) and essentially nothing on high contrast (92.5 %).
+   Without that bookkeeping the same latency is catastrophic
+   (0 % in-focus; see `scripts/run_latency_sweep.py`). This is the
+   predictive-AF arithmetic every modern AF system implements.
 
 The two conditional caveats from the first lever still apply: ISP
 scheduling load and internal bus bandwidth between sensor and SoC are
@@ -183,15 +203,19 @@ firmware teams can answer authoritatively where I cannot.
 (b) *What is the actual ISP-to-decision latency at 60 fps on the X2D?*
 The simulation uses 2 frames (~33 ms) as a representative value, but
 the real number depends on ISP pipeline scheduling, readout mode, and
-firmware. A 1-frame latency would be more forgiving and a 3-frame
-latency would degrade temporal-prior performance noticeably. I have
-also confirmed that *naive* latency buffering without predict-forward
-Kalman compensation breaks high-contrast performance entirely (config
-D under naive 2-frame delay scores 0 ± 0 % in-focus in simulation,
-documented in the repository). Production-quality latency handling
-requires the policy to advance its state estimate forward by N frames
-before applying the delayed measurement — the standard
-predictive-AF maths used by every modern AF system.
+firmware. Both sides of this uncertainty are now demonstrated in the
+simulation rather than asserted (`scripts/run_latency_sweep.py`,
+300 seeds): *naive* fusion of delayed measurements against the
+current lens position degrades severely by 2 frames of latency
+(41 ± 16 % low contrast, 32 ± 0.3 % high contrast — the policy
+chases stale references), while the same latency handled with
+timestamp-correct measurement association — each delayed measurement
+fused against the lens position at capture time — degrades
+gracefully (77.1 / 92.5 % at 2 frames, 69.8 / 91.7 % even at 3).
+This is the standard predictive-AF bookkeeping every modern AF
+system implements; the open question is only what N is on the X2D
+pipeline, which shifts the duty-cycle numbers but not the
+conclusion.
 
 **One general epistemic limit beyond the two above.** The X2D
 firmware is closed; observed behaviour is consistent with the

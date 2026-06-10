@@ -240,3 +240,111 @@ next step when work resumes.
 - `scripts/run_v2_comparison.py` — new
 - `out/v2_comparison.png` — new
 - `DEV_LOG.md` — this file
+
+---
+
+## Day 3 — v3 experiment: model-validity review and five fixes
+
+A fresh-eyes review of the v2 IMX461 experiment found two
+reproduce-level bugs and three fidelity gaps. All five fixed; in the
+process the fixes exposed a sixth, deeper bug that had been present
+since day 1. Chronicle below, because the sequence is instructive.
+
+### The five planned fixes
+
+1. **A/B were the same experiment.** Configs A and B shared identical
+   parameters; nothing in the code modelled the framerate difference.
+   The letter's "binning alone quadruples wasted travel" numbers came
+   from the older single-strip sim only. Fixed: per-config fps
+   (A at 15 fps = 30 frames over the 2 s window; binned configs at
+   60 fps = 120 frames).
+
+2. **Scene regenerated every frame.** Measurement errors were i.i.d.
+   across frames — an unrealistically favourable setting for the
+   temporal prior, whose whole job is averaging independent noise.
+   Fixed: each zone's sharp patch is generated once per trial;
+   only photon noise is fresh per frame. Systematic per-scene bias
+   now persists, as in reality.
+
+3. **No motor dynamics.** The lens teleported to the commanded
+   position. Fixed: per-frame rate limit of 18 mm/s focus-group
+   travel (0.3 mm/frame at 60 fps).
+
+4. **Strawman baseline.** The stateless fallback alternated direction
+   every frame (+/-0.2 mm jitter) and could never reach a target
+   2.5 mm away — the real X2D usually locks or red-boxes within
+   1-2 s. Fixed: monotonic bounded scan that reverses only at travel
+   limits. The same alternating-sweep flaw was then found and fixed
+   in TemporalPolicy and V3Policy.
+
+5. **Latency compensation documented but not implemented.** New
+   config F = D + 2-frame ISP latency with timestamp-correct
+   measurement association (measurement fused against the lens
+   position AT CAPTURE, not current). This is the fix the letter's
+   caveat (b) describes; it converts the naive-latency catastrophe
+   (0 % in-focus) into a modest duty-cycle cost.
+
+### The bug the fixes exposed (day-1 vintage)
+
+With a fixed scene and motor dynamics, high-contrast configs suddenly
+parked at exactly +0.34 mm error, every seed. Tracing the disparity
+response curve revealed **the rendered disparity never changed sign**:
+`render_lr` used the absolute CoC radius with fixed L/R half-disk
+kernels, so front-focus and back-focus produced identical (negative)
+disparity. Every previous experiment had survived this because the
+lens always approached from one side; any overshoot was pushed
+*further away*, masked by per-frame scene regeneration.
+
+Fixing the sign exposed a second rendering artifact: below ~1 px CoC
+radius the discrete half-disk kernels quantize to identical deltas,
+creating an artificial ±0.34 mm measurement dead zone — wider than
+the 0.3 mm in-focus criterion. Real masked-pixel PDAF resolves
+sub-pixel disparity.
+
+Both fixed by replacing the half-disk convolution with full-disk blur
+plus Fourier sub-pixel shift of ±(4r/3π) — the half-disk centroid
+offset, which is the actual PDAF displacement signal, now exact at
+any magnitude including deep sub-pixel.
+
+### v3 results (30-seed sanity; 1000-seed run in progress)
+
+| config | low_contrast | high_contrast |
+|---|---|---|
+| A baseline (15 fps scan)        | 8.8 ± 4.8  | 90.7 ± 7.2 |
+| B + binned readout (60 fps)     | 9.3 ± 0.5  | 93.6 ± 0.7 |
+| C + Kalman                      | 90.8 ± 5.2 | 94.2 ± 0.0 |
+| D + multi-zone (N=5)            | 92.1 ± 0.6 | 94.2 ± 0.0 |
+| E + V3 stack                    | 91.9 ± 1.3 | 92.7 ± 0.4 |
+| F = D + 2f latency, compensated | 77.0 ± 1.6 | 92.5 ± 0.0 |
+
+How the story changed — and why the new one is stronger:
+
+- **The fair baseline now matches the real X2D on BOTH sides**: high
+  contrast mostly locks (90.7 %, with ±7.2 variance — the stochastic
+  lock-vs-hunt behaviour observed on the real camera), low contrast
+  mostly fails (8.8 %) — which is exactly the user-reported pain
+  pattern. The earlier "baseline never locks at all" was an artifact
+  of the strawman sweep.
+- **Binning alone still doesn't help** (8.8 → 9.3): finding 1 of the
+  proposal survives, with honest numbers.
+- **The Kalman prior remains the hero lever** (8.8 → 90.8 on low
+  contrast).
+- **Multi-zone's value is now correctly identified as variance
+  reduction** (±5.2 → ±0.6), not the 9× mean lift the v2 sim
+  suggested — that lift was an artifact of the v2 aggregation
+  formula's confidence veto, which has been softened (agreement now
+  modulates confidence with a 0.5× floor rather than vetoing
+  acquisition).
+- **V3 is rehabilitated**: its v2 "failure" (1 ± 9 %) was caused by
+  the measurement artifacts, not the concept. With honest
+  measurements it performs on par with D (91.9 / 92.7).
+- **Latency caveat is now a solved demonstration**: compensated
+  2-frame latency costs ~15 points of low-contrast duty cycle and
+  nothing on high contrast. Correction to the v2-era claim: under
+  the v3 model the motor rate limit damps the naive-latency
+  oscillation, so uncompensated 2-frame latency is severe
+  degradation (41/32 %) rather than the total failure (0 %) seen
+  in v2. The ranking (compensated >> naive) is unchanged; the
+  rewritten run_latency_sweep.py now shows both curves directly.
+
+TECHNICAL_PROPOSAL.md numbers to be re-synced from the 1000-seed run.
