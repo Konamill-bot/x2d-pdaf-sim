@@ -19,16 +19,28 @@ AF-C on the X2D 100C. While that review is in progress, I want to share
 follow-up technical work I have completed independently, in the spirit
 of being a useful interlocutor rather than only an asker.
 
-Before the technical content, one thing I want to be clear about. The
-X2D 100C continues to produce images I could not make with any other
-camera. The HNCS rendering at base ISO, the dynamic range I get in
-mixed light, the mechanical feel of the XCD 55V focus ring, the
-quietness of the leaf shutter — none of these are in question for me.
+Before any technical content, the thing I most want to say. Every
+Hasselblad carries a dreamer. The 500C did, seventy years on and
+still working. The H6D-100c did, the X1D did, the X2D does — and the
+X2D II will too. None of these cancels the one before it; each is
+someone's first step into a way of seeing. When people pick up an
+X2D they are still genuinely moved by what comes out of it, and they
+should be. It is a good camera. That is not in question for me: the
+HNCS rendering at base ISO, the dynamic range in mixed light, the
+mechanical feel of the XCD 55V focus ring, the quiet of the leaf
+shutter — none of it.
+
 This letter is not a complaint about a camera I regret buying. It is
-precisely because the X2D earns its place in everything else that the
-AF behaviour stands out — it is the one part of the experience that
-does not match the rest. That is why I am willing to spend my own
-time on it, and why I think it is worth your time too.
+the opposite. It is precisely because the X2D earns its place in
+everything else that the one part which does not match the rest — the
+autofocus — stands out. My loyalty began with a 500C, a camera built
+in the 1950s that still performs today: a tool meant to last across
+generations of owners. That is the Hasselblad I fell in love with.
+What I am really asking is whether the X2D can age the way the 500C
+did — kept alive, kept growing — rather than being quietly closed the
+moment the next body ships. The autofocus is just the most concrete
+form that question takes. That is why I spent my own time on it, and
+why I believe it is worth a little of yours.
 
 In the days following my first letter, I conducted systematic direct
 observation of my X2D 100C (firmware 4.2.0, XCD 2,5/55V), built an
@@ -228,10 +240,17 @@ codebase. Either reading makes the question worth asking.
 
 These observations are anchored by direct comparison with my own Sony
 A7 IV (which on an all-white wall produces a single ~0.7 second hunt
-followed by a clear failure indicator), and by published evidence that
-Fujifilm achieved substantial AF improvements from GFX 100S to
-GFX 100S II without changing PDAF hardware — purely through what
+followed by a clear failure indicator). I also raise one comparison
+not to set you against a rival but to point at a model worth
+borrowing: Fujifilm improved the GFX line's autofocus substantially
+across a generation without changing the PDAF hardware — through what
 Capture Integration called an "improved predictive AF algorithm."
+The lesson I take from it is not "they beat you." It is that
+supporting an already-sold body with firmware is *possible*, and that
+customers remember the brand that does it. An older body kept growing
+is not competition for the new one; it is the clearest proof that the
+brand keeps its promises across generations — which is exactly what
+makes someone buy the next one with confidence.
 
 A note on the X2D II 100C's LiDAR. LiDAR provides direct range and
 is a real hardware capability. The specific failure modes I infer
@@ -262,6 +281,23 @@ hardware is AF-C-capable by Hasselblad's own qualification. The
 delta between my camera hunting on a static subject and the X2D II
 tracking a moving one is confined to the body: its firmware, and
 whatever ISP-scheduling budget that firmware is given.
+
+There is one more piece of context that shaped my question, and I
+mention it with deliberate restraint. In my companion notes
+repository (github.com/Konamill-bot/x2d-cim-notes) I documented that
+the continuous-AF and AF-F focus-mode enumerations, their IPC
+pathways, and the focusModeRange API were already present in Phocus
+3.8.5 — the last release supporting only the X2D, before X2D II
+support arrived in 3.8.6 — and that they reference the X2D's own
+firmware module. As that same repository documents, the mode's
+availability is gated by a capability field the camera reports, and
+the firmware behind it is encrypted with a key that lives in the SoC;
+the scaffolding being present in the PC software does not, by itself,
+make the mode available. I am not claiming I can unlock anything — my
+notes conclude the opposite. I raise it only as honest context for
+the question I am asking, whether that capability gating reflects a
+deliberate decision or a constraint I cannot see. I could have framed
+this less gently; I would rather ask you directly than assume.
 
 (A side note, offered as informal signal rather than evidence.)
 An owner in an Asian medium-format community recently published a
@@ -307,9 +343,19 @@ honestly closes the topic?**
 I am not asking for a position, and I am not asking for my code to
 be adopted. I am asking for something simpler — acknowledgement that
 the question is worth answering. A 20-year-old who spent his weekend
-building this simulation instead of doing anything else did so because
-this brand genuinely matters to him. That kind of engagement is rare,
-and I would simply value knowing it was seen.
+building this simulation instead of anything else did so because this
+brand genuinely matters to him. That kind of engagement is rare, and
+I would value knowing it was seen.
+
+What I am really asking for is not a feature. It is a belief — that
+when I buy the 907X I am planning for, it will be looked after the
+way my 500C still is; that a Hasselblad is a tool meant to outlast
+the model number on its box. Every camera you make carries a dreamer,
+and the ones already in our hands are not yesterday's news — they are
+the proof, every day, of whether the legend holds. Keep the older
+bodies growing and the legend never dies; let them quietly close and
+something irreplaceable goes with them. I would like to keep
+believing. I think you would like me to, as well.
 
 I do not expect a quick response; please take the time you need. I
 plan to continue documenting findings on the public repository in the
