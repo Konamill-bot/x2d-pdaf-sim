@@ -1,12 +1,21 @@
 # Technical Proposal — X2D 100C Autofocus Behavioural Study
 
-> *This document is the technical proposal that this study supports.
-> A version of the text below is intended to be delivered as personal
-> correspondence to Hasselblad's product team. The public version
-> exists so the methodology, simulation results, and recommendations
-> can be cited and reviewed independently of any communication outcome.
-> The text is unchanged between the two forms; only the surrounding
-> framing differs.*
+> **Note on status.** This is a *draft* — the version I prepared and
+> originally intended to send, written *before* Hasselblad replied to
+> my first inquiry. I am leaving it here as it was, unedited by
+> hindsight, for two reasons. First, so the methodology, simulation
+> results, and recommendations can be cited and reviewed independently
+> of any communication outcome. Second, as a small record of what I
+> had already anticipated: the reply I eventually received did not
+> engage with any of the technical points below, and confirmed — almost
+> to the word — what I had predicted a templated response would say.
+> I am keeping the proposal in its original, good-faith form rather
+> than rewriting it to match what happened. It is what I genuinely
+> wanted to send.
+
+> *(This document doubles as personal correspondence to Hasselblad's
+> product team and as a public technical record. The text is the same
+> in both; only the surrounding framing differs.)*
 
 ---
 
