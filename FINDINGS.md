@@ -215,29 +215,6 @@ PDAF computation, only re-use existing PDAF output more intelligently.
 
 ---
 
-## Strategic notes (process, not technical)
-
-### Reporting venue choice
-Hasselblad's official forum has banned users for stating that the X2D
-"is not capable of autofocussing precisely" (reported in Photrio thread
-on X2D focusing). Public reporting via the official channel risks
-suppression. Direct private contact with the product team plus an
-independent public technical record (this repository) is the only path
-that combines visibility with non-suppression.
-
-### Letter framing
-The Layer 1 findings reduce to a single, narrowly scoped request:
-expose or relax the PDAF trust threshold and add a minimal temporal
-prior over confidence. This is a firmware change of small extent,
-zero hardware cost, and is independently demonstrated to be effective
-by GFX 100S → 100S II.
-
-Layer 2 should be confirmed (Test E) before raising.
-Layer 3 should not be raised at all — it would be perceived as a
-demand for X2D II features on the X2D.
-
----
-
 ## Sources
 
 - [Lloyd Chambers (diglloyd) — X2D Autofocus](https://diglloyd.com/prem/s/MF/HasselbladX/HasselbladX2D-autofocus.html)

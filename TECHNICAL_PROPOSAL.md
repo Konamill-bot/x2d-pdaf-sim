@@ -253,6 +253,16 @@ above are independent of that mechanical limitation and would lift
 performance wherever the underlying lens can move at the required
 rate.
 
+One specific consequence of that lens list is worth stating plainly:
+**my own XCD 2,5/55V is on it.** The lens I observe hunting on the
+X2D 100C is the same linear-stepping-motor design that Hasselblad has
+certified for continuous AF on the X2D II. On my exact setup, the
+mechanical layer is demonstrably not the constraint — the lens
+hardware is AF-C-capable by Hasselblad's own qualification. The
+delta between my camera hunting on a static subject and the X2D II
+tracking a moving one is confined to the body: its firmware, and
+whatever ISP-scheduling budget that firmware is given.
+
 (A side note, offered as informal signal rather than evidence.)
 An owner in an Asian medium-format community recently published a
 hands-on side-by-side comparison of the X2D, X2D II, GFX 100S, and
