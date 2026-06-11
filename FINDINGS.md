@@ -195,6 +195,47 @@ confidence metric) are O(microseconds) on a Cortex-A class CPU and are
 independent of the 100MP sensor readout pipeline. They do not increase
 PDAF computation, only re-use existing PDAF output more intelligently.
 
+### ISP budget estimate — AF-C decision stack vs. loads the X2D already runs
+
+Order-of-magnitude estimate, using the camera's own shipped features
+as the yardstick. All figures are back-of-envelope and labelled as
+such; corrections welcome.
+
+**Bandwidth:**
+
+| load | data rate | status |
+|---|---|---|
+| EVF live stream (4x4 binned, ~6.4 MP x 60 fps, 10-bit) | ~480 MB/s | shipped — runs today |
+| all 294 PDAF zones read every frame (upper bound) | ~100 MB/s | nobody needs this |
+| AF-C actual need (5 zones x L/R x 60 fps) | ~2 MB/s | 0.4 % of the EVF stream |
+
+The PDAF channel is a separate readout path (see above). The 5-zone
+AF-C data rate is a rounding error against the EVF stream the camera
+already sustains. Bus bandwidth cannot be the AF-C blocker, because a
+load ~250x larger is already running.
+
+**Compute:**
+
+| load | order | status |
+|---|---|---|
+| face detection (mobile-class detector, even at 15 Hz) | ~1.5–15 GFLOPS | shipped — firmware 3.1.0 (2023-11-30) |
+| phase correlation, 5 zones x 60 fps (2-D FFT, worst case) | ~0.3–0.6 GFLOPS | ~1/10 to 1/25 of face detection |
+| Kalman policy itself (2x2 matrices) | ~3 kFLOPS | ~10^-6 of face detection |
+
+Real PDAF correlators are typically 1-D SAD over masked-pixel lines,
+often a hardware block inside the ISP — so the 2-D FFT figure above
+overstates the cost.
+
+**What remains honestly unknown** is the same scheduling question as
+above: whether the AF loop gets a guaranteed time slot when JPEG
+encode, IBIS, and noise processing compete for ISP cycles. That is a
+software-integration question, measurable only inside the camera.
+But "the ISP lacks the capacity" is contradicted by the loads the
+camera already ships: it streams ~480 MB/s to the EVF and spends
+GFLOPS-class compute on face detection. The AF-C decision stack's
+marginal cost — ~2 MB/s and microseconds of Kalman per frame — is
+smaller than either by orders of magnitude.
+
 ---
 
 ## Cross-camera reference
