@@ -348,3 +348,129 @@ How the story changed — and why the new one is stronger:
   rewritten run_latency_sweep.py now shows both curves directly.
 
 TECHNICAL_PROPOSAL.md numbers to be re-synced from the 1000-seed run.
+
+## Day 4 — AF-C feasibility (run_afc.py v1 -> v2)
+
+Question: can the same decision stack do continuous AF (AF-C) on this
+sensor geometry? Hasselblad's position is that the X2D cannot meet
+their AF-C standard. The TemporalPolicy Kalman state was always
+(position, VELOCITY) — the velocity term is the core of predictive
+AF-C — so the test is pointing the existing stack at a moving subject.
+
+### v1 — and the two ways it was wrong
+
+First version: constant-velocity walk-in, all four configs scored
+100 %. Honest reading: a smooth mover is trivially easy; one frame of
+lag at 60 fps is 0.02 mm, deep inside the 0.3 mm band. The experiment
+didn't discriminate anything.
+
+Second version added intermittent confidence dropout — and got the
+dramatic result (AF-S hunts 36x, AF-C zero) **by construction**: the
+dropout confidence (0.15) was hand-placed between AF-S's trust
+threshold (0.35) and AF-C's sweep floor (0.08). A reviewer would
+correctly call the magnitude an artifact of threshold placement.
+
+### v2 hardening (four fixes, mirrors the Day-3 discipline)
+
+- **H1 dropout grid**: sweep P(dropout) x conf floor across BOTH
+  boundaries instead of one chosen point. Result: the AF-C advantage
+  lives only in the middle band (conf between the two thresholds),
+  grows with dropout rate (+11 pp at P=0.3 -> +40 pp at P=0.5), and
+  vanishes at both edges exactly as the mechanism predicts (conf
+  above 0.35: invisible to both; conf below 0.08: both sweep, AF-C
+  advantage -1 pp i.e. noise). The boundary map IS the claim now —
+  the mechanism is real, and its domain is explicit.
+- **H2 erratic motion**: approach / hard stop / reverse — two velocity
+  discontinuities, the constant-velocity prior's worst case. Result:
+  AF-C coasts past the stop by only 0.10 mm worst-case (0.17 mm with
+  look-ahead), recovering within a few frames because 60 fps
+  measurements re-pin the velocity state quickly. No CA (acceleration)
+  state needed at walking speeds. AF-S on the same scenario: worst
+  error 0.83 mm, 36 hunts.
+- **H3 pixel-level focus band**: scored against the defocus where CoC
+  radius = 1 native pixel (3.76 um) alongside the 0.3 mm band.
+  Surprise worth recording: the 1-px-radius band computes to 0.494 mm
+  — LOOSER than the 0.3 mm band we'd been using, which corresponds to
+  ~0.6 px CoC. Our original criterion was already at-or-tighter than
+  pixel-level. (If one insists on 1 px *diameter*, the band is
+  ~0.25 mm, comparable to 0.3.) Either way AF-C scores 100 % on both.
+- **H4 burst blackout**: periodic PDAF-blind windows at ~3.3 fps burst
+  cadence (7 of every 18 frames blind). The stateless policy can only
+  hold through a gap; the Kalman coasts on velocity (new
+  `TemporalPolicy.coast()`). Result: AF-C bridges every gap (100 %,
+  lag 0.025 mm). Honest footnote: blackouts actually *help* AF-S
+  slightly (92.2 % vs 89.6 %) because a blind frame can't trigger a
+  hunt — holding is safer than hunting, which is itself an indictment
+  of the hunt-on-dropout policy. Latency+blackout interaction costs
+  the look-ahead config some lag (0.091 mm, worst 0.24 mm) but stays
+  in-band.
+
+### What this does and does not show
+
+Shows: the decision-algorithm half of AF-C is not the blocker on this
+geometry — velocity prediction was already in the AF-S stack, costs
+microseconds per frame, and survives dropout, hard stops, and burst
+blackouts in simulation.
+
+Does not show: that the X2D ISP sustains a 60 fps AF loop (same
+"hardware ceiling" caveat as FINDINGS.md), nor anything about the
+LATERAL half of AF-C (subject recognition, zone hand-off as the
+subject moves across the frame) — the depth-tracking question was
+deliberately isolated by keeping the subject centred. The lateral
+half is the part the X2D II ships a deep-learning model for, and
+remains out of scope here (FINDINGS.md Layer 3 note applies).
+
+Files: scripts/run_afc.py (new), pdaf_sim/policy.py
+(TemporalPolicy.predict_frames + coast()), out/afc_tracking.png,
+out/afc_dropout_grid.png, out/afc_burst.png.
+
+### H5 (v3, added after firmware-evidence check) — AF-loop-rate sweep
+
+The 60 fps AF loop was the study's largest unverifiable assumption, so
+v3 stopped assuming it. What is externally checkable:
+
+- X2D firmware 3.1.0 (2023-11-30) added face detection in AF mode —
+  proof that some continuous per-frame computation runs on the live
+  stream (Hasselblad release notes). The detector's own inference
+  rate is NOT published anywhere we could find.
+- The EVF stream is 60 fps (published spec), so the sensor side
+  sustains a 60 Hz subsampled stream.
+- On mobile-class ISPs, detectors commonly run at 1/2 or 1/4 of the
+  stream rate (15–30 Hz) with interpolation between inferences.
+
+So v3 sweeps the AF measurement loop at 15 / 30 / 60 fps, with motor
+step, latency (33 ms wall time -> frames), grace, and burst cadence
+all scaled by rate, and subject motion held in real units (mm/s).
+
+Results (walk / erratic, 30 % dropout, AF-C carries 33 ms latency):
+
+| rate | AF-S walk | AF-C walk | AF-S erratic | AF-C erratic |
+|---|---|---|---|---|
+| 15 fps | 98.9 % (8.8 hunts) | 99.9 % (0) | 87.4 % (8.8) | **95.3 % (0)** |
+| 30 fps | 95.6 % (17.8) | 100 % (0) | 92.6 % (17.8) | 100 % (0) |
+| 60 fps | 89.5 % (35.8) | 100 % (0) | 87.1 % (35.9) | 100 % (0) |
+
+Two honest surprises, both worth keeping:
+
+1. **AF-S gets BETTER as the loop slows** (89.5 -> 98.9 on walk).
+   Hunting is a per-measurement pathology: fewer measurements per
+   second = fewer dropout-triggered sweeps, and the larger per-frame
+   motor budget recovers each excursion faster. The corollary cuts
+   the other way for Hasselblad: if the X2D's loop is slow, that
+   does not explain the hunting away — a slow stateless loop hunts
+   LESS in this model. The visible hunting is the threshold policy,
+   not the rate.
+2. **AF-C's first sub-100 cell**: erratic subject at 15 fps = 95.3 %,
+   worst error 0.32 mm — the velocity prior coasts past the hard
+   stop and, with only ~30 measurements in the window, takes longer
+   to re-pin. This is the genuine boundary of the CV-Kalman at
+   detector subrates, recorded rather than hidden.
+
+Net for the claim: the AF-C conclusion no longer depends on the
+60 fps assumption. At the MOST conservative reading of the firmware
+evidence (15 fps detector-style subrate), velocity-prior AF-C tracks
+a walking subject at ~100 % and an erratic one at 95 %, with ZERO
+hunts at every rate — and hunts are the user-visible failure.
+
+Files: scripts/run_afc.py (v3, fps threaded through; latency now in
+wall-time ms), out/afc_fps_sweep.png (new).

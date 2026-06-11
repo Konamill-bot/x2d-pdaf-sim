@@ -66,6 +66,9 @@ class TemporalPolicy:
     sweep_step: float = 5.0
     scan_lo: float = -0.5                # monotonic-scan bounds for the
     scan_hi: float = 6.0                 # low-confidence fallback
+    predict_frames: int = 0              # AF-C: command this many frames AHEAD
+                                         # using the velocity state, to cancel
+                                         # pipeline latency (0 = AF-S/AF-C-S).
     _x: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
     _P: np.ndarray = field(default_factory=lambda: np.eye(2) * 10.0)
     _sweep_dir: int = 1
@@ -97,7 +100,25 @@ class TemporalPolicy:
         self._x = self._x + (K @ y).flatten()
         self._P = (np.eye(2) - K @ H) @ self._P
 
-        return Decision(lens_cmd=float(self._x[0]), swept=False)
+        # AF-C: extrapolate position by velocity * predict_frames so the
+        # command targets where the subject WILL be when this frame's motor
+        # move lands, cancelling measurement/pipeline latency. With
+        # predict_frames=0 this is the plain filtered position.
+        cmd = float(self._x[0] + self._x[1] * self.predict_frames)
+        return Decision(lens_cmd=cmd, swept=False)
+
+    def coast(self) -> Decision:
+        """No measurement this frame (e.g. PDAF blackout during burst
+        exposure/readout): predict-only step. The velocity state carries
+        the lens along the subject's last-known motion instead of
+        freezing -- this is the bridge across shot-to-shot gaps that a
+        stateless policy cannot build."""
+        F = np.array([[1.0, 1.0], [0.0, 1.0]])
+        Q = np.array([[self.process_var, 0.0], [0.0, self.process_var]])
+        self._x = F @ self._x
+        self._P = F @ self._P @ F.T + Q
+        cmd = float(self._x[0] + self._x[1] * self.predict_frames)
+        return Decision(lens_cmd=cmd, swept=False)
 
 
 @dataclass
