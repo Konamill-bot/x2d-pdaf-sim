@@ -42,6 +42,70 @@ unrealistic advantage).
 Numbers, tables and the full argument live in
 [TECHNICAL_PROPOSAL.md](TECHNICAL_PROPOSAL.md).
 
+## Continuous AF (AF-C): the same stack tracks a moving subject
+
+The AF-S study above asks "can the lens converge on a stationary
+subject without hunting?" The follow-up asks the harder question —
+the one usually answered with "the hardware can't": can the **same
+decision stack** track a subject that is *moving* in depth?
+
+It can, because the Kalman state already contains a velocity term —
+and a velocity estimate *is* the core of predictive continuous AF.
+No new machinery was added; the existing AF-S stack was pointed at
+moving subjects.
+
+![AF-C tracking](out/afc_tracking.png)
+
+A walking subject (constant velocity) and an erratic one (approach,
+hard stop, reverse — the worst case for a velocity prior), both with
+30 % intermittent confidence dropout, the regime where the stateless
+policy hunts:
+
+| 60 fps loop | track % (±0.3 mm) | worst error | hunts / 2 s |
+|---|---|---|---|
+| stateless (AF-S policy) | 87–90 % | 0.65–0.83 mm | **~36** |
+| Kalman velocity prior (AF-C) | **100 %** | 0.05–0.10 mm | **0** |
+| AF-C + 33 ms pipeline latency | **100 %** | 0.05–0.17 mm | **0** |
+
+Three hardening passes matter as much as the headline (all documented
+in `DEV_LOG.md`, including the flawed first version):
+
+- **Dropout grid, not a chosen point** — the AF-C advantage is mapped
+  across the full dropout-probability × confidence plane, *including
+  the regions where it vanishes* (`out/afc_dropout_grid.png`). The
+  mechanism's predicted boundaries match the measured ones.
+- **Burst blackout** — periodic PDAF-blind windows at a ~3.3 fps burst
+  cadence. The stateless policy can only hold through a gap; the
+  Kalman coasts on velocity and bridges every one
+  (`out/afc_burst.png`).
+- **The AF-loop-rate assumption is removed entirely:**
+
+![AF-C loop-rate sweep](out/afc_fps_sweep.png)
+
+The only externally verifiable facts are that the EVF stream runs at
+60 fps and that firmware 3.1.0 added face detection — proof of *some*
+continuous per-frame computation, at an unpublished rate. So instead
+of assuming 60 fps, the experiment sweeps the AF loop at 15 / 30 /
+60 fps. The AF-C conclusion survives at every rate — at the most
+conservative reading (15 fps detector-style subrate), it still tracks
+a walking subject at ~100 % and an erratic one at 95 %, with zero
+hunts. Two honest surprises are recorded in the dev log: the
+stateless policy actually hunts *less* at slower loop rates (hunting
+is a per-measurement pathology — so a slow loop cannot explain the
+hunting away), and the erratic/15 fps cell is the genuine boundary of
+the constant-velocity prior (95.3 %, worst error 0.32 mm).
+
+**Scope, honestly:** this demonstrates the *depth-tracking* half of
+AF-C. The lateral half — subject recognition and zone hand-off as the
+subject moves across the frame — needs a subject-detection model and
+is deliberately out of scope (that is legitimately X2D II territory).
+And whether the X2D's ISP scheduler grants the AF loop a guaranteed
+time slot is only measurable inside the camera. What the simulation
+rules out is the *algorithm* and the *arithmetic*: an ISP budget
+estimate in [FINDINGS.md](FINDINGS.md) shows the AF-C decision stack
+adds ~2 MB/s and microseconds of compute per frame to a camera that
+already streams ~480 MB/s to the EVF and runs face detection.
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -61,6 +125,8 @@ Numbers, tables and the full argument live in
   `REAL_ANCHORS` (direct observations of X2D 100C and Sony A7 IV)
 - `scripts/run_imx461_stats.py` — **the headline experiment** (1000
   seeds, lever-by-lever, IMX461 geometry)
+- `scripts/run_afc.py` — **the AF-C study**: moving-subject depth
+  tracking, dropout grid, burst blackout, AF-loop-rate sweep
 - `scripts/run_latency_sweep.py` — sensitivity of config D to
   uncompensated ISP latency
 - `scripts/run_v4_tracking.py` — moving subject + occlusion demo
@@ -82,6 +148,7 @@ explains why each was superseded.
 ```bash
 pip install -r requirements.txt
 python scripts/run_imx461_stats.py     # headline figure (multi-core, ~2 min)
+python scripts/run_afc.py              # AF-C study, all four figures (~1.5 min)
 python scripts/run_latency_sweep.py    # latency sensitivity figure
 ```
 
