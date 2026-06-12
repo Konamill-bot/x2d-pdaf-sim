@@ -254,6 +254,40 @@ smaller than either by orders of magnitude.
 - **Implication**: at least one peer manufacturer has demonstrated that
   100MP-class PDAF AF can be substantially improved via firmware alone.
 
+### Blackmagic Cinema 6K (published reference — strongest precedent)
+- A **free firmware update (v9.5, 2025)** added **continuous autofocus,
+  object tracking and face detection** to a camera owners already had,
+  using AI processing on the existing hardware (the AF motors live in
+  the L-mount lens)
+  ([Digital Camera World](https://www.digitalcameraworld.com/cameras/cinema-cameras/the-fan-favorite-blackmagic-cinema-6k-camera-is-about-to-get-a-major-autofocus-overhaul-with-a-free-firmware-update)).
+- The first build was admittedly buggy; Blackmagic then refined it with
+  the community, rolling user AF-C feedback into successive builds.
+- **Implication**: this is the closest published precedent to what the
+  X2D study argues — continuous AF, including face detection, delivered
+  to an *existing* body by firmware on hardware it already shipped with.
+
+### Nikon Z9 / Z6 III (published reference)
+- The Z9 is ~4 years old and Nikon is *still* shipping major free
+  firmware: v4.0 alone listed 25+ new features, and flagship features
+  (bird detection, pre-release capture) have been pushed *down* into
+  cheaper bodies like the Z6 III via firmware
+  ([DPReview](https://www.dpreview.com/news/5858543313/nikon-z9-firmware-5p3-update-features),
+  [Digital Camera World](https://www.digitalcameraworld.com/tech/firmware/the-nikon-z8-and-z6-iii-just-gained-a-long-list-of-new-custom-features-and-bug-fixes-thanks-to-firmware)).
+- **Implication**: the prevailing direction among peers is firmware that
+  *narrows* the gap between old and new bodies, not one that gates
+  capability behind a new purchase.
+
+### Paid-upgrade precedent (for the "licensed upgrade" proposal)
+- Manufacturers already charge owners to unlock features on hardware they
+  own: Sony's US$149 custom-gridline license, and Panasonic's **DMW-SFU2
+  key** which unlocks V-Log (a pro video feature the hardware can already
+  do) on the LUMIX S1
+  ([PetaPixel](https://petapixel.com/2023/11/28/for-150-sony-will-let-you-add-custom-gridlines-to-your-a7-iv/),
+  [Panasonic](https://na.panasonic.com/news/panasonic-lumix-to-release-the-upgrade-software-key-dmw-sfu2)).
+- **Note**: Phase One and Leica also run official paid *upgrade* paths,
+  but those are hardware trade-ups, a looser fit than a paid firmware
+  feature license.
+
 ---
 
 ## Sources
@@ -262,6 +296,11 @@ smaller than either by orders of magnitude.
 - [Jim Kasson — X2D vs GFX 100 II family photography](https://blog.kasson.com/x2d/family-photography-with-the-x2d-xcd90v-and-the-gfx-100-ii-gf110/)
 - [Roman Fox — Hasselblad X2D 100C Review](https://www.snapsbyfox.com/blog/hasselblad-x2d-100c-review)
 - [Capture Integration — GFX 100S II profoundly better AF](https://www.captureintegration.com/fujifilm-gfx-100s-ii-profoundly-better-autofocus/)
+- [Digital Camera World — Blackmagic Cinema 6K free firmware adds continuous AF](https://www.digitalcameraworld.com/cameras/cinema-cameras/the-fan-favorite-blackmagic-cinema-6k-camera-is-about-to-get-a-major-autofocus-overhaul-with-a-free-firmware-update)
+- [DPReview — Nikon still adding features to the Z9 four years on](https://www.dpreview.com/news/5858543313/nikon-z9-firmware-5p3-update-features)
+- [Digital Camera World — Nikon Z8 / Z6 III firmware feature additions](https://www.digitalcameraworld.com/tech/firmware/the-nikon-z8-and-z6-iii-just-gained-a-long-list-of-new-custom-features-and-bug-fixes-thanks-to-firmware)
+- [PetaPixel — Sony's US$149 custom gridline license](https://petapixel.com/2023/11/28/for-150-sony-will-let-you-add-custom-gridlines-to-your-a7-iv/)
+- [Panasonic — DMW-SFU2 paid V-Log upgrade key](https://na.panasonic.com/news/panasonic-lumix-to-release-the-upgrade-software-key-dmw-sfu2)
 - [Photrio thread — X2D focusing help (incl. banning incident)](https://www.photrio.com/forum/threads/hasselblad-x2d-focusing-help.200327/)
 - [Hasselblad XCD 55V product page](https://www.hasselblad.com/x-system/lenses/xcd-55v/)
 - [USPTO US9910247 — Focus hunting prevention for PDAF](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9910247)
