@@ -308,18 +308,22 @@ the question I am asking, whether that capability gating reflects a
 deliberate decision or a constraint I cannot see. I could have framed
 this less gently; I would rather ask you directly than assume.
 
-(A side note, offered as informal signal rather than evidence.)
-An owner in an Asian medium-format community recently published a
-hands-on side-by-side comparison of the X2D, X2D II, GFX 100S, and
-GFX 100 II. Their report observes that the X2D II's AF, while
-"noticeably faster" than the original X2D, still appears slower than
-the GFX 100S — a 2021 body with neither LiDAR nor a deep-learning
-AF accelerator. This is one user's experience, not a controlled
-benchmark, and the pattern would need broader corroboration before
-being load-bearing. I mention it only because, if it is borne out,
-it would point at the firmware layer rather than the hardware as
-the binding AF-speed constraint — which is precisely what the rest
-of this letter argues from the simulation side.
+(A side note, offered as informal signal rather than evidence — and
+updated here because the signal turned out to conflict.) One owner in
+an Asian medium-format community published a hands-on comparison
+suggesting the X2D II's AF, while "noticeably faster" than the
+original X2D, still felt slower than the GFX 100S. A second owner,
+however, with hands-on time on both bodies, reports the opposite:
+that the X2D II's AF-C is markedly *better* than the 100S, and better
+than the newer GFX as well when within LiDAR range. With two
+firsthand accounts in direct conflict and neither a controlled
+benchmark, I treat the X2D-II-versus-GFX speed ranking as unsettled
+and set it aside. Nothing in the argument that follows depends on it.
+The load-bearing point is narrower and is not anecdotal: the
+depth-tracking half of AF-C is a firmware decision policy that does
+not require LiDAR, and my own AF-C-certified 55V lens already
+establishes that the mechanical layer is not the constraint on my
+setup.
 
 A note connecting this back to my Letter 1 AF-C question. The
 components in configuration D — a Kalman temporal prior over focus
