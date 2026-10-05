@@ -474,3 +474,89 @@ hunts at every rate — and hunts are the user-visible failure.
 
 Files: scripts/run_afc.py (v3, fps threaded through; latency now in
 wall-time ms), out/afc_fps_sweep.png (new).
+
+## Harsh-timeline teleport bug, and the 4-phase ablation
+
+### The bug
+
+`run_x2d_plus.build_timeline` drew its motion parameters inside the
+per-frame loop instead of once per segment:
+
+- `steady`: `rng.choice([-1, 1])` per frame, so the subject flipped
+  between walking in and walking out on every frame
+- `erratic`: the sway period `rng.uniform(25, 50)` was redrawn every frame
+  (effectively random phase noise)
+- `step`: the jump target `rng.uniform(0.6, 8.0)` was redrawn every frame
+  for the whole second half of the segment
+
+Measured on the seed-0 timeline: in "steady" segments ~40% of frames had a
+frame-to-frame focus jump larger than the 0.1 mm deadband, and single-frame
+jumps reached 1.2–4 m. No physical subject moves like that, and no AF policy
+can follow it. That is why every config sat at a flat ~59% on the harsh mix,
+and why the README called it "measurement-limited".
+
+Fix: draw `sign`, `period` and `jump_to` once per segment. It affects
+`run_x2d_plus`, `run_stress_fps` and the ablation's harsh phase. Re-running
+the old 3-phase ablation over 5 seeds before and after the fix:
+
+| config | P3 harsh, buggy | P3 harsh, fixed |
+|---|---|---|
+| firmware (30 Hz, 4000) | 59.4 ± 17 | 76.0 ± 12 |
+| + loop rate (60 Hz) | 59.4 ± 18 | 81.5 ± 12 |
+| + predictive | 60.1 ± 17 | 84.2 ± 10 |
+| + speed 10000 | 59.5 ± 17 | 84.8 ± 10 |
+
+Retracted claims:
+
+1. "Harsh is measurement-limited; loop rate barely lifts it." With the fix,
+   both loop rate and the predictive policy help in the harsh mix.
+2. "The speed cap can cost a little in the harshest noise" (49 → 46). That
+   came from a single seed. Seed-to-seed std on that phase is 10–17 points,
+   and over 5 seeds the difference is +0.6. It was noise.
+
+Lesson (same as Day 3): one seed is an anecdote. The ablation now reports
+mean ± std over 10 timelines.
+
+### The 4-phase ablation (replaces run_ablation_3phase.py)
+
+- **P1 random teleports**: the targets were fixed (3 / 8 / 20 m). They are now
+  drawn anywhere from 0.6 m to infinity, uniform in dioptres (the focus throw
+  is roughly linear in dioptres), with random 1.5–3.5 s holds.
+- **P3 occlusion (new)**: the subject wanders smoothly in depth (1.5–6 m,
+  ≤ 1.8 m/s) while textured occluders at a nearer random depth slide in
+  across 0.15 s, stay for 0.5–1.5 s, then slide out. In 60% of events the
+  occluder covers every AF zone; otherwise it covers 30–70% of them. The
+  occluder is rendered at its own defocus and composited, so its confidence
+  comes from the physics. A probe with the subject at 3 m, lens in focus:
+  - 30% coverage: median disparity stays on the subject, confidence drops
+    to 0.28
+  - full occluder at 2 m: confident (0.97) reading of the occluder's depth
+  - full occluder at 1 m: 0.38 confidence
+  - full occluder at 0.5 m: blurred out (0.13)
+- **P4 harsh + rain**: about 40% of harsh segments also get rain at intensity
+  0.3–1.0. The rain is a semi-transparent streak layer at 0.4–1.5 m that hits
+  each AF zone with probability 0.5 × intensity per frame, plus a haze veil
+  (−30% contrast at full intensity) and extra noise. In heavy rain the near
+  streaks pull disparity toward the camera (probe: 47% of frames off by more
+  than 0.1 mm at intensity 1.0).
+
+Results (10 seeds) are in the README table. The new finding: **occlusion is a
+gap that no lever closes.** On frames with an occluder in front, in-focus is
+34% (firmware) → 28% → 27% → 27% (X2D+). The faster, more responsive configs
+believe the occluder sooner. The step-clamp in X2DPlus, built so the policy
+does not overshoot a rack focus, also snaps straight to a confident occluder.
+A confident textured occluder is a correct measurement of the wrong object, so
+depth alone cannot separate it from a real subject change. The candidates are
+a lock-on hold (hold depth for N ms after a large confident jump unless it
+persists), which is the "AF tracking sensitivity" knob other bodies expose,
+or subject identity. Recorded as open work.
+
+Also noted, not changed: the `erratic` motion in the harsh generator is a
+0.7 m sine with a 0.4–0.8 s period, which peaks at 5–11 m/s. That is fast
+for a person, and it is the dominant failure condition in `x2d_plus` (28% →
+48%). It is a design choice, not a bug, but it makes "erratic" closer to
+"implausibly fast" than to "unpredictable".
+
+Files: scripts/run_x2d_plus.py (fix + y-axis), scripts/run_ablation_4phase.py
+(new, replaces run_ablation_3phase.py), out/x2d_plus.png, out/stress_fps.png,
+out/ablation_4phase.png (replaces out/ablation_3phase.png).
