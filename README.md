@@ -106,6 +106,38 @@ estimate in [FINDINGS.md](FINDINGS.md) shows the AF-C decision stack
 adds ~2 MB/s and microseconds of compute per frame to a camera that
 already streams ~480 MB/s to the EVF and runs face detection.
 
+## Extended AF-C algorithm studies
+
+Six additional simulation studies isolating *where* AF-C quality actually comes
+from (simulation only — see [DISCLAIMER.md](DISCLAIMER.md)).
+
+**Config is the big lever, not the filter.** Sweeping AF loop rate × lens speed
+cap moves in-focus rate far more than swapping the temporal filter:
+
+![AF loop rate vs speed cap vs filter](out/big_levers.png)
+
+**Why AF-C stays laggy — timing.** Pipeline latency + loop rate vs a predictive
+filter (a non-predictive smoother lags; prediction tuned to the latency recovers it):
+
+![latency and loop-rate sweep](out/realism_sweep.png)
+
+**Adaptive policy in realistic units (subject distance in metres), high vs low contrast:**
+
+![adaptive policy, high vs low contrast](out/adaptive_v2.png)
+
+**Periodic patterns fool phase-detect (confident false lock); CDAF disambiguates:**
+
+![periodic-pattern aliasing](out/periodic.png)
+
+**Timing a front → background focus pull (prediction overshoots on sudden steps):**
+
+![focus-pull timing](out/focus_pull.png)
+
+**Low contrast is measurement-limited — temporal integration recovers faint
+texture without LiDAR; a textureless target is unfocusable by any passive method:**
+
+![low-contrast temporal integration](out/lowcontrast_fix.png)
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
