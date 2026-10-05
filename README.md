@@ -132,6 +132,27 @@ already streams ~480 MB/s to the EVF and runs face detection.
 - `scripts/run_v4_tracking.py` — moving subject + occlusion demo
 - `scripts/fit_policy.py` — behavioural-cloning fit of policy
   parameters to observed lens trajectories (differential evolution)
+
+Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
+
+- `scripts/run_big_levers.py` — **AF loop RATE × lens SPEED CAP sweep**: the
+  loop update rate dominates in-focus rate far more than the temporal-filter
+  choice. Config is the big lever, not the algorithm.
+- `scripts/run_realism_sweep.py` — pipeline **latency** + loop-rate vs a
+  predictive filter: a non-predictive smoother lags under latency; prediction
+  tuned to the latency recovers it.
+- `scripts/run_adaptive_v2.py` — an **adaptive** policy (step-clamp +
+  confidence-scaled prediction) in realistic units (subject distance in metres);
+  high vs low contrast.
+- `scripts/run_periodic.py` — **periodic-pattern aliasing**: phase detection can
+  lock confidently on a *false* plane; a CDAF-coarse + PDAF-fine hybrid
+  disambiguates where pure PDAF cannot.
+- `scripts/run_focus_pull.py` — **timing a front→background pull** under
+  latency / loop-rate / motor lag plus a foreground distractor; shows prediction
+  overshoots on a sudden step (so it is motion-dependent).
+- `scripts/run_lowcontrast_fix.py` — low contrast is **measurement-limited**:
+  temporal integration recovers faint texture *without LiDAR*, while a truly
+  textureless target is unfocusable by any passive method (physics).
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
