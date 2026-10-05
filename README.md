@@ -210,3 +210,12 @@ MIT.
 Built in conversation with Claude (Anthropic) as a thinking partner,
 in the spirit of "a smart colleague who walks into the room." Final
 technical claims and observations are the author's responsibility.
+
+## Disclaimer
+
+Personal research / independent investigation only. **Simulation code only — no
+firmware, no `.cim` files, no decrypted or extracted firmware data** is included
+or required. This is an idealised model of autofocus *algorithms*, not a
+reverse-engineering of any product's implementation. Not affiliated with or
+endorsed by Hasselblad / DJI / any manufacturer. Provided "as is", without
+warranty. See [DISCLAIMER.md](DISCLAIMER.md) for the full text.
