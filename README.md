@@ -147,6 +147,22 @@ on top of the far larger loop-rate lever above:
 
 ![mixed harsh-environment stress test](out/x2d_plus.png)
 
+**Core AF-C job, normal conditions — moving subject + occlusion.** A brisk
+walk-in with ~1 s occlusion dropouts, good light and contrast. The baseline
+freezes and *loses the focus zone* during occlusion (≈45% in-focus there); a
+predictive filter coasts through it, and the full proposal (60 Hz + bias-fixed
+predictive/coast) holds the subject (≈92% through occlusion):
+
+![moving subject + dropout: firmware vs Kalman vs X2D+](out/moving_dropout.png)
+
+**Does raising the loop rate rescue the *harsh* mix?** Re-running the 2-minute
+harsh timeline at 30 Hz vs 60 Hz shows only a small lift — because the harsh
+ceiling is set by measurement-limited conditions (noise, aliasing, erratic
+motion) that a faster loop cannot fix. Loop rate is the big lever for *normal*
+shooting, not for the worst cases:
+
+![harsh timeline at 30 vs 60 Hz](out/stress_fps.png)
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -197,6 +213,11 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 - `scripts/run_x2d_plus.py` — **mixed / harsh-environment stress test (~2 min)**:
   brightness, motion, fog, and distortions (periodic / noise / dropout) randomly
   combined; improved policy vs baseline with a per-condition breakdown.
+- `scripts/run_moving_dropout.py` — **core AF-C in normal conditions**: a brisk
+  moving subject + ~1 s occlusions; firmware vs Kalman vs X2D+ (60 Hz + bias fix).
+  The baseline loses the focus zone during occlusion; the proposal holds it.
+- `scripts/run_stress_fps.py` — re-runs the harsh 2-min timeline at 30 Hz vs
+  60 Hz: loop rate barely lifts the *harsh* mix (measurement-limited ceiling).
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
