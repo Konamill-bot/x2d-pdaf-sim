@@ -540,16 +540,45 @@ mean ± std over 10 timelines.
   streaks pull disparity toward the camera (probe: 47% of frames off by more
   than 0.1 mm at intensity 1.0).
 
-Results (10 seeds) are in the README table. The new finding: **occlusion is a
-gap that no lever closes.** On frames with an occluder in front, in-focus is
-34% (firmware) → 28% → 27% → 27% (X2D+). The faster, more responsive configs
-believe the occluder sooner. The step-clamp in X2DPlus, built so the policy
-does not overshoot a rack focus, also snaps straight to a confident occluder.
-A confident textured occluder is a correct measurement of the wrong object, so
-depth alone cannot separate it from a real subject change. The candidates are
-a lock-on hold (hold depth for N ms after a large confident jump unless it
-persists), which is the "AF tracking sensitivity" knob other bodies expose,
-or subject identity. Recorded as open work.
+### Correction: AF-C and AF-T need different scoring under occlusion
+
+The first version scored every config against the subject in P3. It
+reported "occlusion is a gap no lever closes": 27–34% in-focus while an
+occluder is in front, and worse for the faster configs. That was the wrong
+yardstick for AF-C. AF-C focuses on whatever is in the AF area, so moving to
+an occluder that fills the AF area is correct AF-C behaviour. The faster
+configs "lost" because they switched to the occluder sooner, which is exactly
+what AF-C should do. Staying on the subject behind an occluder is the job of
+tracking AF (AF-T), which knows the subject's identity.
+
+The ablation now scores each mode against its own target:
+
+- **AF-C target**: the occluder whenever it covers more than half the AF
+  zones. That is where the multi-zone median flips, so it is what the AF
+  area "sees". Otherwise the target is the subject.
+- **AF-T target**: always the subject. AF-T is X2D+ plus an ideal subject
+  tracker. Occluded zones are excluded from the PDAF measurement, and full
+  occlusion means no subject measurement, so the policy coasts on velocity.
+  Ideal identity makes it an upper bound.
+
+Results (10 seeds), on frames where the occluder fills the AF area:
+
+| config | vs own target | vs subject | vs AF area |
+|---|---|---|---|
+| firmware AF-C (30 Hz, 4000) | 63 ± 8% | 19% | 63% |
+| + loop rate (60 Hz) | 77 ± 7% | 11% | 77% |
+| + predictive (60 Hz, 4000) | 78 ± 7% | 9% | 78% |
+| + speed 10000 (X2D+ AF-C) | 84 ± 5% | 9% | 84% |
+| X2D+ AF-T | 95 ± 6% | 95% | 3% |
+
+For AF-C, every lever helps it switch onto the occluder quickly. Loop rate
+helps most (+14), and the speed cap gives a real +6 here because snapping to
+a near occluder is a long, fast throw. AF-T holds the subject through 95% of
+those frames and matches X2D+ AF-C everywhere else (P1/P2 identical; P4
+differs by < 1 point, only because the noise RNG advances differently after
+P3). The earlier "occlusion gap" was the scoring, not the AF. The step-clamp
+note still stands for a *depth-only* tracking mode: without subject identity,
+a lock-on hold is the only defence against a confident occluder.
 
 Also noted, not changed: the `erratic` motion in the harsh generator is a
 0.7 m sine with a 0.4–0.8 s period, which peaks at 5–11 m/s. That is fast
