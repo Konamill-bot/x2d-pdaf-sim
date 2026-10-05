@@ -111,13 +111,19 @@ def build_timeline(seed=0):
         dist = str(rng.choice(["", "", "", "periodic", "noise", "dropout"]))
         motion = str(rng.choice(["steady", "steady", "erratic", "erratic", "step", "static"]))
         d0 = d_m
+        # Motion parameters are drawn ONCE per segment. (Drawing them inside the
+        # frame loop made the subject teleport every frame -- see DEV_LOG,
+        # "Harsh-timeline teleport bug".)
         amp = rng.uniform(0.6, 2.0)                              # realistic continuous motion (m)
+        sign = int(rng.choice([-1, 1]))                          # steady: walk-in or walk-out
+        period = rng.uniform(25, 50)                             # erratic: sway period (frames)
+        jump_to = float(rng.uniform(0.6, 8.0))                   # step: where the subject jumps to
         for i in range(seg):
             t = i / max(seg - 1, 1)
             if motion == "static": d = d0
-            elif motion == "steady": d = d0 + rng.choice([-1, 1]) * amp * t
-            elif motion == "erratic": d = d0 + 0.7 * np.sin(2 * np.pi * i / rng.uniform(25, 50)) + rng.normal(0, 0.04)
-            else: d = d0 if i < seg // 2 else float(rng.uniform(0.6, 8.0))  # sudden step mid-seg
+            elif motion == "steady": d = d0 + sign * amp * t
+            elif motion == "erratic": d = d0 + 0.7 * np.sin(2 * np.pi * i / period) + rng.normal(0, 0.04)
+            else: d = d0 if i < seg // 2 else jump_to             # sudden step mid-seg
             d = float(np.clip(d, 0.6, 10.0))
             bright[k] = br; fog[k] = fg; distort[k] = dist; subj[k] = d; k += 1
         d_m = d
@@ -240,6 +246,7 @@ def main():
     ax[1].plot(t, e_fw, color="#D85A30", lw=0.7, label="firmware AF-C")
     ax[1].plot(t, e_pl, color="#1D9E75", lw=0.7, label="X2D+ (improved)")
     ax[1].axhline(DEADBAND, color="#aaa", ls=":"); ax[1].set_yscale("symlog", linthresh=0.1)
+    ax[1].set_ylim(bottom=0)                      # |error| is never negative
     ax[1].set_ylabel("defocus err (mm)"); ax[1].set_xlabel("time (s)")
     ax[1].set_title("Focus error over 2 minutes"); ax[1].legend(fontsize=8)
     fig.tight_layout(); fig.savefig("out/x2d_plus.png", dpi=110)

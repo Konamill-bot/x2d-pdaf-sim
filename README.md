@@ -153,9 +153,11 @@ texture without LiDAR; a textureless target is unfocusable by any passive method
 **Mixed / harsh-environment stress test (~2 minutes).** Brightness, motion type,
 fog, and distortions (periodic aliasing / noise bursts / occlusion dropouts)
 randomly combined per segment; an improved policy vs the baseline, with a
-per-condition in-focus breakdown. The improved policy wins where its mechanisms
-apply (continuous motion, dropouts) and ties elsewhere — a modest, honest gain
-on top of the far larger loop-rate lever above:
+per-condition in-focus breakdown. Firmware (30 Hz, 4000) vs X2D+ (60 Hz, 10000):
+56% → 68% overall. X2D+ wins where its mechanisms apply — erratic motion
+(28 → 48%), periodic aliasing (38 → 52%), occlusion dropouts (42 → 66%) — and
+ties where the baseline is already fine (static / steady / step / noise, all
+≥ 95%). Single seed; see the multi-seed ablation below for error bars:
 
 ![mixed harsh-environment stress test](out/x2d_plus.png)
 
@@ -169,33 +171,74 @@ coasts through it (≈82% / 90%), and the full proposal holds the subject
 
 ![moving subject + dropout: firmware vs Kalman vs X2D+](out/moving_dropout.png)
 
-**Does raising the loop rate rescue the *harsh* mix?** Re-running the 2-minute
-harsh timeline at 30 Hz vs 60 Hz shows only a small lift — because the harsh
-ceiling is set by measurement-limited conditions (noise, aliasing, erratic
-motion) that a faster loop cannot fix. Loop rate is the big lever for *normal*
-shooting, not for the worst cases:
+**Does raising the loop rate lift the *harsh* mix?** Yes. Re-running the
+2-minute harsh timeline at 30 Hz vs 60 Hz: firmware 56% → 62%, X2D+ 51% → 68%.
+The predictive policy *needs* the faster loop. At 30 Hz it is actually below
+the baseline on this seed, because its velocity estimate is too stale to
+extrapolate on. (An earlier version of this paragraph said the harsh mix was
+"measurement-limited" and loop rate barely helped. That was an artefact of a
+timeline bug that teleported the subject every frame; see `DEV_LOG.md`,
+"Harsh-timeline teleport bug".)
 
 ![harsh timeline at 30 vs 60 Hz](out/stress_fps.png)
 
-**Incremental ablation over a 3-phase timeline.** Adding one lever at a time
-(loop rate → predictive policy → speed cap), over 30 s of high-contrast *fast
-teleports* (3 m → 8 m → 20 m), 30 s of *1-2% contrast*, and 60 s of the *harsh
-mix*, with the realistic servo magnetic motor. Each lever's marginal gain is
-visible per phase, and the last config is everything combined:
+**Incremental ablation over a 4-phase timeline.** Adding one lever at a time
+(loop rate → predictive policy → speed cap) over 2.5 minutes, with the realistic
+servo magnetic motor:
 
-| config (cumulative) | P1 fast | P2 low-con | P3 harsh | overall |
-|---|---|---|---|---|
-| firmware (30 Hz, 4000) | 91% | 57% | 41% | 58% |
-| + loop rate (60 Hz) | 95% | 71% | 41% | 62% |
-| + predictive (60 Hz, 4000) | 96% | 87% | 49% | 70% |
-| + speed 10000 (= X2D+) | 97% | 87% | 46% | 69% |
+- **P1 (30 s)**: high-contrast *random teleports* anywhere from 0.6 m to
+  infinity (uniform in dioptres, random 1.5–3.5 s holds)
+- **P2 (30 s)**: *1–2% contrast*
+- **P3 (30 s)**: *occlusion*. The subject wanders in depth while textured
+  foreground occluders cross in front of it, sometimes covering only some
+  AF zones and sometimes all of them
+- **P4 (60 s)**: the *harsh mix* plus *rain* on random segments
 
-Loop rate carries the fast / low-contrast phases; the predictive policy carries
-low contrast; the speed cap adds ~0 here (it only pays off on a dedicated big
-rack focus, see above) and can even cost a little in the harshest noise. Harsh
-stays measurement-limited for every config.
+Occluders and rain are rendered as their own textured layers at their own
+depth and composited into the AF zones they cover. Their PDAF confidence
+comes out of the same optics + phase-correlation stack; nothing is
+hand-coded as "no measurement".
 
-![3-phase ablation](out/ablation_3phase.png)
+**AF-C and AF-T have different correct answers under occlusion**, so each mode
+is scored against its own:
+
+- **AF-C** focuses on whatever is in the AF area. When an occluder fills most
+  of it (more than half the zones, which is where the multi-zone median flips),
+  focusing on the occluder *is* the right answer.
+- **AF-T** knows which object is the subject. It should ignore the occluder
+  and stay on the subject. It is modelled as X2D+ plus an ideal subject
+  tracker: occluded AF zones are dropped from the PDAF measurement, and when
+  every zone is covered the policy coasts on its velocity estimate. Ideal
+  identity makes this an upper bound on what a real tracker achieves.
+
+Mean ± std over 10 independent timelines, each config scored against its
+own mode's target:
+
+| config | P1 teleport | P2 low-con | P3 occlusion | P3 while occluder fills AF area | P4 harsh+rain | overall |
+|---|---|---|---|---|---|---|
+| firmware AF-C (30 Hz, 4000) | 88 ± 1% | 65 ± 15% | 85 ± 4% | 63 ± 8% | 68 ± 13% | 75 ± 7% |
+| + loop rate (60 Hz) | 93 ± 1% | 78 ± 12% | 91 ± 3% | 77 ± 7% | 72 ± 12% | 81 ± 6% |
+| + predictive (60 Hz, 4000) | 93 ± 1% | 88 ± 9% | 91 ± 3% | 78 ± 7% | 79 ± 9% | 86 ± 4% |
+| + speed 10000 (= X2D+ AF-C) | 95 ± 1% | 88 ± 9% | 93 ± 2% | 84 ± 5% | 75 ± 12% | 85 ± 6% |
+| **X2D+ AF-T** (subject tracker) | 95 ± 1% | 88 ± 9% | **99 ± 1%** | **95 ± 6%** | 76 ± 12% | **87 ± 6%** |
+
+What each lever does:
+
+- **Loop rate** is the broadest lever. It lifts every phase, and it is the
+  biggest single gain for AF-C switching onto an occluder (63 → 77%).
+- **Predictive** carries low contrast (+10) and the harsh mix (+7).
+- **Speed cap** pays off wherever focus has to travel far and fast: the big
+  random teleports (+2) and AF-C snapping onto a near occluder (78 → 84%).
+  Everywhere else it is within noise.
+
+AF-C and AF-T behave as each should. While an occluder fills the AF area, the
+AF-C configs sit on the subject only 9–19% of the time, because they correctly
+move to the occluder. AF-T sits on the occluder only 3% of the time and
+holds the subject 95% of the time. Outside occlusion AF-T matches X2D+ AF-C,
+so subject tracking costs nothing elsewhere. Rain frames alone: 73% → 78%
+(firmware → X2D+).
+
+![4-phase ablation](out/ablation_4phase.png)
 
 ## What's in this repo
 
@@ -252,11 +295,12 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
   moving subject + ~1 s occlusions; firmware vs Kalman vs X2D+ (60 Hz + bias fix).
   The baseline loses the focus zone during occlusion; the proposal holds it.
 - `scripts/run_stress_fps.py` — re-runs the harsh 2-min timeline at 30 Hz vs
-  60 Hz: loop rate barely lifts the *harsh* mix (measurement-limited ceiling).
-- `scripts/run_ablation_3phase.py` — **incremental ablation** (+ loop rate +
-  predictive + speed cap) over a 3-phase timeline (high-contrast fast teleports /
-  1-2% contrast / harsh mix), realistic servo magnetic motor; isolates each
-  lever's marginal contribution per phase.
+  60 Hz: the loop rate lifts the harsh mix, and the predictive policy needs it.
+- `scripts/run_ablation_4phase.py` — **incremental ablation** (+ loop rate +
+  predictive + speed cap) plus an **AF-T** config, over a 4-phase timeline
+  (random 0.6 m–∞ teleports / 1-2% contrast / occlusion / harsh mix + rain),
+  realistic servo magnetic motor, 10 seeds. AF-C is scored on following what
+  fills the AF area, AF-T on staying on the subject.
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
