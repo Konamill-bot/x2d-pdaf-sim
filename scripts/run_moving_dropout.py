@@ -38,7 +38,7 @@ from pdaf_sim.policy import TemporalPolicy
 
 FPS = 60; N = 780; LO, HI = X.LO, X.HI                 # 13 s
 F, FN, DI, PIX = X.F_MM, X.FNUM, X.DIST, X.PIX
-PPM = X.PX_PER_MM; MAXSTEP = X.MAX_STEP_MM; MOTOR = X.MOTOR; LAT = X.LATENCY; DB = X.DEADBAND
+PPM = X.PX_PER_MM; LAT = X.LATENCY; DB = X.DEADBAND
 DROPOUTS = [(170, 230), (380, 450), (560, 640)]       # ~1 s occlusions
 
 
@@ -54,10 +54,11 @@ class KalmanMine:                                      # the user's predictive f
     def coast(s): return s.p.coast().lens_cmd
 
 
-def run(make_policy, update_every, seed=1):
+def run(make_policy, update_every, speed, seed=1):
     rng = np.random.default_rng(seed); nrng = np.random.default_rng(seed+7)
     sharp = high_contrast(rng); pol = make_policy(); lb = X.LatencyBuffer(LAT)
     lens = X.focus_mm(subj_m(0)); last = lens
+    motor = X.make_motor(lens, speed)                  # magnetic voice-coil at this speed cap
     track = np.zeros(N); err = np.zeros(N)
     for k in range(N):
         tgt = X.focus_mm(subj_m(k))
@@ -69,20 +70,21 @@ def run(make_policy, update_every, seed=1):
                 d, c = estimate_disparity_multi_zone(L, R, max_disp_px=48, n_zones=14)
                 arr = lb.push_pop((d/PPM, c, 0.0, lens))
                 last = pol.coast() if (arr is None or arr[0] is None) else pol.step(arr[0], arr[1], arr[2], arr[3])
-        st = float(np.clip(last-lens, -MAXSTEP, MAXSTEP)); lens = float(np.clip(lens+MOTOR*st, LO, HI))
+        lens = motor.command(last)                     # real motor dynamics
         track[k] = lens; err[k] = abs(lens-tgt)
     return track, err
 
 
 def main():
     os.makedirs("out", exist_ok=True)
-    cfgs = [("firmware (30Hz)", lambda: X.Firmware(), 2, "#D85A30"),
-            ("Kalman mine (30Hz)", KalmanMine, 2, "#378ADD"),
-            ("X2D+ 60Hz + bias fix", lambda: X.X2DPlus(), 1, "#1D9E75")]
+    # firmware & Kalman run on X2D's current hardware (4000); X2D+ = proposal (10000)
+    cfgs = [("firmware (30Hz, 4000)", lambda: X.Firmware(), 2, X.SPEED_X2D, "#D85A30"),
+            ("Kalman mine (30Hz, 4000)", KalmanMine, 2, X.SPEED_X2D, "#378ADD"),
+            ("X2D+ (60Hz, 10000)", lambda: X.X2DPlus(), 1, X.SPEED_TARGET, "#1D9E75")]
     k = np.arange(N); t = k / FPS
     res = {}
-    for name, mk, ue, col in cfgs:
-        track, err = run(mk, ue); res[name] = (track, err, col)
+    for name, mk, ue, spd, col in cfgs:
+        track, err = run(mk, ue, spd); res[name] = (track, err, col)
         print(f"{name:<24} in-focus={100*np.mean(err<DB):5.1f}%  mean_err={err.mean():.3f}mm  "
               f"dropout in-focus={100*np.mean(err[[in_drop(i) for i in k]]<DB):5.1f}%")
     fig, ax = plt.subplots(2, 1, figsize=(13, 8), sharex=True)

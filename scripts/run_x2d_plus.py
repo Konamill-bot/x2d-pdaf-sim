@@ -46,9 +46,54 @@ F_MM, FNUM, DIST, PIX = 55.0, 2.5, 1500.0, 3.76
 PX_PER_MM = signed_disparity_px(1.0, F_MM, FNUM, DIST, PIX)
 FPS = 60; DURATION_S = 120; N = DURATION_S * FPS
 N_ZONES = 14; MAX_DISP_PX = 48; LO, HI = 0.0, 7.0
-MAX_STEP_MM = 10000.0 / 300.0 / FPS; MOTOR = 0.6
 LATENCY = 3; UPDATE_EVERY = 2; DEADBAND = 0.10
 ALIAS_PERIOD_MM = 1.5
+
+# ---- lens drive (real-ish spec) -------------------------------------------
+# Lens step rate -> focus-group speed. STEPS_PER_MM is an ASSUMPTION (the real
+# steps/mm of the XCD 55V is not published); it only sets the mm/s scale, so the
+# RELATIVE comparison between speed caps is what matters.
+STEPS_PER_MM = 300.0
+SPEED_X2D    = 4000.0    # X2D today (the current cap)
+SPEED_TARGET = 10000.0   # proposed enhancement
+SPEED_X2DII  = 12000.0   # X2D II
+SPEED_CEIL   = 24000.0   # hardware ceiling (silicon limit)
+# XCD 55V = MAGNETIC linear (voice-coil) focus motor: no gear backlash. Modelled
+# as a servo-controlled drive -> critically damped (no overshoot), with a velocity
+# cap (the speed setting) and a finite acceleration (coil inertia/current limit).
+SETTLE_TAU_S = 0.030     # servo settle time constant (small-signal, critically damped)
+ACCEL_TIME_S = 0.020     # time to spin up to vmax (coil force / inertia)
+MOTOR = 0.6                              # legacy first-order constant (kept for back-compat)
+MAX_STEP_MM = SPEED_TARGET / STEPS_PER_MM / FPS   # legacy slew constant
+
+def vmax_mm_s(speed_steps_s):
+    return speed_steps_s / STEPS_PER_MM
+
+@dataclass
+class Motor:
+    """XCD 55V-style magnetic (voice-coil / linear) focus motor, servo-driven.
+    Carries position AND velocity. Small corrections settle like a critically
+    damped first-order servo (desired vel = err / tau, so NO overshoot/ringing);
+    big moves saturate at vmax (the speed cap); velocity changes are acceleration
+    limited (coil inertia). No gear backlash -> none modelled."""
+    pos: float
+    vmax: float                      # mm/s (= speed_steps_s / STEPS_PER_MM)
+    accel: float                     # mm/s^2
+    tau: float = SETTLE_TAU_S
+    fps: float = FPS
+    vel: float = 0.0
+    def command(self, target):
+        dt = 1.0 / self.fps
+        err = target - self.pos
+        v_des = float(np.clip(err / self.tau, -self.vmax, self.vmax))   # damped + capped
+        dv = float(np.clip(v_des - self.vel, -self.accel * dt, self.accel * dt))
+        self.vel += dv
+        self.pos = float(np.clip(self.pos + self.vel * dt, LO, HI))
+        return self.pos
+
+def make_motor(pos, speed_steps_s, fps=FPS, accel_time_s=ACCEL_TIME_S):
+    v = vmax_mm_s(speed_steps_s)
+    return Motor(pos=float(pos), vmax=v, accel=v / accel_time_s, fps=fps)
 
 def focus_mm(D_m):
     return float(np.clip(F_MM ** 2 / (max(D_m * 1000.0, F_MM + 1) - F_MM), LO, HI))
@@ -152,13 +197,15 @@ class X2DPlus:
         return float(self._x[0] + (vel * self.predict_frames if abs(vel) > 0.012 else 0.0))
 
 # ---------------- run ----------------
-def run(policy, bright, fog, distort, subj, seed=1):
+def run(policy, bright, fog, distort, subj, seed=1, speed=SPEED_TARGET, update_every=None):
+    ue = UPDATE_EVERY if update_every is None else update_every
     rng = np.random.default_rng(seed); nrng = np.random.default_rng(seed + 7)
     sharp = high_contrast(rng); lb = LatencyBuffer(LATENCY)
     lens = focus_mm(subj[0]); last = lens; err = np.zeros(N)
+    motor = make_motor(lens, speed)                                # magnetic voice-coil
     for k in range(N):
         tgt = focus_mm(subj[k])
-        if k % UPDATE_EVERY == 0:
+        if k % ue == 0:
             accum = 4 if (fog[k] > 0.3 or bright[k] < 0.5) else 1   # integrate in fog/dark
             m = measure(sharp, lens, tgt, bright[k], fog[k], distort[k], accum, nrng, rng)
             arr = lb.push_pop((m[0], m[1], m[2], lens))             # carry lens-at-measurement
@@ -166,16 +213,16 @@ def run(policy, bright, fog, distort, subj, seed=1):
                 last = policy.coast()
             else:
                 last = policy.step(arr[0], arr[1], arr[2], arr[3])  # use lens at measurement time
-        st = float(np.clip(last - lens, -MAX_STEP_MM, MAX_STEP_MM))
-        lens = float(np.clip(lens + MOTOR * st, LO, HI)); err[k] = abs(lens - tgt)
+        lens = motor.command(last); err[k] = abs(lens - tgt)       # real motor dynamics
     return err
 
 def main():
     os.makedirs("out", exist_ok=True)
     bright, fog, distort, subj, segs = build_timeline(seed=0)
     t0 = time.time()
-    e_fw = run(Firmware(), bright, fog, distort, subj)
-    e_pl = run(X2DPlus(), bright, fog, distort, subj)
+    # firmware = X2D today (4000 steps/s, 30 Hz loop); X2D+ = proposal (10000, 60 Hz)
+    e_fw = run(Firmware(), bright, fog, distort, subj, speed=SPEED_X2D, update_every=2)
+    e_pl = run(X2DPlus(), bright, fog, distort, subj, speed=SPEED_TARGET, update_every=1)
     print(f"sim compute: {time.time()-t0:.1f}s for {DURATION_S}s footage x2 policies")
     t = np.arange(N) / FPS
     fig, ax = plt.subplots(2, 1, figsize=(15, 8), sharex=True)

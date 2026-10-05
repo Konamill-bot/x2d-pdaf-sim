@@ -34,10 +34,14 @@ firmware-level changes one lever at a time:
   standard predictive-AF bookkeeping, not a blocker
 
 Run on 1000 independent seeds per configuration per scene; figures
-report mean ± std. The simulation includes lens motor rate limiting
-(no teleporting lens) and a fixed scene per trial (measurement errors
-are *not* i.i.d. across frames, so the temporal prior is not given an
-unrealistic advantage).
+report mean ± std. The lens is modelled as a servo-controlled magnetic
+voice-coil motor (critically damped, velocity-capped at the speed
+setting, acceleration-limited, no gear backlash — no teleporting lens),
+and the scene is fixed per trial (measurement errors are *not* i.i.d.
+across frames, so the temporal prior is not given an unrealistic
+advantage). The PDAF/CDAF fusion is **confidence-gated**, not a fixed
+weight ratio: PDAF leads, CDAF verifies near focus and backs off under
+low confidence.
 
 Numbers, tables and the full argument live in
 [TECHNICAL_PROPOSAL.md](TECHNICAL_PROPOSAL.md).
@@ -111,8 +115,16 @@ already streams ~480 MB/s to the EVF and runs face detection.
 Six additional simulation studies isolating *where* AF-C quality actually comes
 from (simulation only — see [DISCLAIMER.md](DISCLAIMER.md)).
 
-**Config is the big lever, not the filter.** Sweeping AF loop rate × lens speed
-cap moves in-focus rate far more than swapping the temporal filter:
+**Loop rate is the big lever; speed cap only helps big throws.** Sweeping AF loop
+rate × lens speed cap, with a *servo-controlled magnetic voice-coil* lens model
+(critically damped, velocity-capped, acceleration-limited, no backlash — an
+XCD 55V-style linear motor). Speed caps are modelled at the real values:
+4000 steps/s (X2D today), 10000 (proposed), 12000 (X2D II), 24000 (silicon
+ceiling). For *normal* subject motion the loop rate dominates (≈7.5 Hz → 60 Hz:
+65% → 99%) and the four speed caps essentially overlap — a faster motor adds
+almost nothing once it already outruns the subject. Speed only pays off on a
+*big rack focus* (0.6 m ↔ 8 m): settle time 4000 = 433 ms → 10000 = 233 ms →
+12000 = 200 ms → 24000 = 150 ms. The temporal filter is a minor lever (≈+5):
 
 ![AF loop rate vs speed cap vs filter](out/big_levers.png)
 
@@ -148,10 +160,12 @@ on top of the far larger loop-rate lever above:
 ![mixed harsh-environment stress test](out/x2d_plus.png)
 
 **Core AF-C job, normal conditions — moving subject + occlusion.** A brisk
-walk-in with ~1 s occlusion dropouts, good light and contrast. The baseline
-freezes and *loses the focus zone* during occlusion (≈45% in-focus there); a
-predictive filter coasts through it, and the full proposal (60 Hz + bias-fixed
-predictive/coast) holds the subject (≈92% through occlusion):
+walk-in with ~1 s occlusion dropouts, good light and contrast. Firmware runs on
+X2D's current hardware (30 Hz, 4000 steps/s); the full proposal is 60 Hz at
+10000 steps/s. The baseline freezes and *loses the focus zone* during occlusion
+(≈45% in-focus there, 64% overall); a predictive filter on the *same* hardware
+coasts through it (≈82% / 90%), and the full proposal holds the subject
+(≈87% through occlusion, 94% overall):
 
 ![moving subject + dropout: firmware vs Kalman vs X2D+](out/moving_dropout.png)
 
@@ -162,6 +176,26 @@ motion) that a faster loop cannot fix. Loop rate is the big lever for *normal*
 shooting, not for the worst cases:
 
 ![harsh timeline at 30 vs 60 Hz](out/stress_fps.png)
+
+**Incremental ablation over a 3-phase timeline.** Adding one lever at a time
+(loop rate → predictive policy → speed cap), over 30 s of high-contrast *fast
+teleports* (3 m → 8 m → 20 m), 30 s of *1-2% contrast*, and 60 s of the *harsh
+mix*, with the realistic servo magnetic motor. Each lever's marginal gain is
+visible per phase, and the last config is everything combined:
+
+| config (cumulative) | P1 fast | P2 low-con | P3 harsh | overall |
+|---|---|---|---|---|
+| firmware (30 Hz, 4000) | 91% | 57% | 41% | 58% |
+| + loop rate (60 Hz) | 95% | 71% | 41% | 62% |
+| + predictive (60 Hz, 4000) | 96% | 87% | 49% | 70% |
+| + speed 10000 (= X2D+) | 97% | 87% | 46% | 69% |
+
+Loop rate carries the fast / low-contrast phases; the predictive policy carries
+low contrast; the speed cap adds ~0 here (it only pays off on a dedicated big
+rack focus, see above) and can even cost a little in the harshest noise. Harsh
+stays measurement-limited for every config.
+
+![3-phase ablation](out/ablation_3phase.png)
 
 ## What's in this repo
 
@@ -192,9 +226,10 @@ shooting, not for the worst cases:
 
 Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 
-- `scripts/run_big_levers.py` — **AF loop RATE × lens SPEED CAP sweep**: the
-  loop update rate dominates in-focus rate far more than the temporal-filter
-  choice. Config is the big lever, not the algorithm.
+- `scripts/run_big_levers.py` — **AF loop RATE × lens SPEED CAP sweep** with a
+  servo magnetic voice-coil motor, speed caps at 4000/10000/12000/24000 steps/s.
+  Loop rate dominates normal motion; speed cap only cuts big rack-focus settle
+  time; the temporal filter is minor. Config is the big lever, not the algorithm.
 - `scripts/run_realism_sweep.py` — pipeline **latency** + loop-rate vs a
   predictive filter: a non-predictive smoother lags under latency; prediction
   tuned to the latency recovers it.
@@ -218,6 +253,10 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
   The baseline loses the focus zone during occlusion; the proposal holds it.
 - `scripts/run_stress_fps.py` — re-runs the harsh 2-min timeline at 30 Hz vs
   60 Hz: loop rate barely lifts the *harsh* mix (measurement-limited ceiling).
+- `scripts/run_ablation_3phase.py` — **incremental ablation** (+ loop rate +
+  predictive + speed cap) over a 3-phase timeline (high-contrast fast teleports /
+  1-2% contrast / harsh mix), realistic servo magnetic motor; isolates each
+  lever's marginal contribution per phase.
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
