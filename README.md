@@ -138,6 +138,15 @@ texture without LiDAR; a textureless target is unfocusable by any passive method
 
 ![low-contrast temporal integration](out/lowcontrast_fix.png)
 
+**Mixed / harsh-environment stress test (~2 minutes).** Brightness, motion type,
+fog, and distortions (periodic aliasing / noise bursts / occlusion dropouts)
+randomly combined per segment; an improved policy vs the baseline, with a
+per-condition in-focus breakdown. The improved policy wins where its mechanisms
+apply (continuous motion, dropouts) and ties elsewhere — a modest, honest gain
+on top of the far larger loop-rate lever above:
+
+![mixed harsh-environment stress test](out/x2d_plus.png)
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -185,6 +194,9 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 - `scripts/run_lowcontrast_fix.py` — low contrast is **measurement-limited**:
   temporal integration recovers faint texture *without LiDAR*, while a truly
   textureless target is unfocusable by any passive method (physics).
+- `scripts/run_x2d_plus.py` — **mixed / harsh-environment stress test (~2 min)**:
+  brightness, motion, fog, and distortions (periodic / noise / dropout) randomly
+  combined; improved policy vs baseline with a per-condition breakdown.
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
