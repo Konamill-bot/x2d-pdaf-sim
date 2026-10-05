@@ -120,11 +120,21 @@ rate × lens speed cap, with a *servo-controlled magnetic voice-coil* lens model
 (critically damped, velocity-capped, acceleration-limited, no backlash — an
 XCD 55V-style linear motor). Speed caps are modelled at the real values:
 4000 steps/s (X2D today), 10000 (proposed), 12000 (X2D II), 24000 (silicon
-ceiling). For *normal* subject motion the loop rate dominates (≈7.5 Hz → 60 Hz:
-65% → 99%) and the four speed caps essentially overlap — a faster motor adds
-almost nothing once it already outruns the subject. Speed only pays off on a
-*big rack focus* (0.6 m ↔ 8 m): settle time 4000 = 433 ms → 10000 = 233 ms →
-12000 = 200 ms → 24000 = 150 ms. The temporal filter is a minor lever (≈+5):
+ceiling). For *normal* subject motion the loop rate dominates (7.5 → 15 → 30
+→ 60 Hz: 64% → 81% → 92% → 99%) and the four speed caps essentially overlap — a
+faster motor adds almost nothing once it already outruns the subject. Speed only
+pays off on a *big rack focus* (0.6 m ↔ 8 m): settle time 4000 = 450 ms →
+10000 = 239 ms → 12000 = 228 ms → 24000 = 183 ms. The temporal filter is a minor
+lever (+6 at 30 Hz).
+
+The sweep now also runs a **90 Hz** point: the sensor-side ceiling. The IMX461's
+fastest 12-bit readout mode at a usable resolution is 90.5 fps (Sony flyer,
+readout mode 12, 3884 × 970, about 4 MP). 120 Hz, as in the GFX100 II's Boost
+mode, is a newer sensor; the IMX461-generation GFX100S boosts to 85.7 fps,
+consistent with that ceiling. 90 Hz adds only +0.3 over 60 Hz here: for normal
+motion, **60 Hz already reaches the ceiling**, and the big step is X2D's
+30 Hz → 60 Hz (+7). (The simulation clock moved to 180 Hz so all rates land on
+whole ticks, which shifts the earlier numbers by a few ms / points.)
 
 ![AF loop rate vs speed cap vs filter](out/big_levers.png)
 
@@ -269,8 +279,9 @@ so subject tracking costs nothing elsewhere. Rain frames alone: 73% → 78%
 
 Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 
-- `scripts/run_big_levers.py` — **AF loop RATE × lens SPEED CAP sweep** with a
-  servo magnetic voice-coil motor, speed caps at 4000/10000/12000/24000 steps/s.
+- `scripts/run_big_levers.py` — **AF loop RATE × lens SPEED CAP sweep** (7.5–90 Hz,
+  90 Hz = IMX461 readout ceiling) with a servo magnetic voice-coil motor, speed
+  caps at 4000/10000/12000/24000 steps/s.
   Loop rate dominates normal motion; speed cap only cuts big rack-focus settle
   time; the temporal filter is minor. Config is the big lever, not the algorithm.
 - `scripts/run_realism_sweep.py` — pipeline **latency** + loop-rate vs a
