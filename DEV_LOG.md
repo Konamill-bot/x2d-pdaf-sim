@@ -589,3 +589,118 @@ for a person, and it is the dominant failure condition in `x2d_plus` (28% →
 Files: scripts/run_x2d_plus.py (fix + y-axis), scripts/run_ablation_4phase.py
 (new, replaces run_ablation_3phase.py), out/x2d_plus.png, out/stress_fps.png,
 out/ablation_4phase.png (replaces out/ablation_3phase.png).
+
+## DualGated: confidence calibration, gating, and the two-timescale handover
+
+### The question
+The suggestion was that "confidence-based adaptive gating" would lift P2 (1–2% contrast, 88%)
+substantially. Before building anything, I measured how much there is to gain.
+
+### Step 1: what do P2 measurements actually look like?
+I took 4000 PDAF measurements at P2 conditions (1–2% contrast, 4-frame integration), with
+lens errors both near and far from focus:
+
+- The robust σ of the depth error runs from 0.036 mm at confidence ≈ 1 to 0.19 mm at
+  confidence ≈ 0.18.
+- There were **no outliers above 0.6 mm**.
+- The fit is σ(c) = 0.0361 · c^−0.926 mm.
+- X2D+ uses R = 1/c, which is σ ≈ 1 mm even at full confidence: about 30× too wide.
+
+I ran the same check under high contrast, fog 0.6, dim 0.35, and fog 0.3 + dim 0.6:
+
+- The fit matches at low contrast.
+- In the other conditions it *over*-estimates the noise at mid confidence, because the PSR
+  dips with defocus blur there, not with noise. That makes the filter conservative, which
+  is safe.
+- No outliers anywhere.
+
+### Step 2: the headroom bound (P2 slice, seeds 0–9, X2D+ policy)
+
+| variant | P2 in-focus |
+|---|---|
+| real measurements | 88.3 |
+| real measurements, zero latency | 93.3 |
+| **perfect measurement** (zero error, confidence 1) | **91.8** |
+| perfect measurement, zero latency | 96.1 |
+
+So no confidence handling can add more than about **+3.5** to P2. Latency against the
+jittery P2 subject is worth more (+4.3). This bound decided the scale of the claim before
+any tuning started.
+
+### Step 3: the path, including what failed
+Parameters were tuned on seeds 100–109 (P2-only and P3-only slices). Validation used seeds
+0–9 and 20–29 on the full 4-phase timeline, paired against X2D+.
+
+1. **GatedKF, a single filter.** Calibrated R, a confidence floor of 0.05, a 3.5σ gate
+   with 3 confirmations, q = 1e-3, lead 3. On held-out seeds 0–9:
+   - P2 +2.0, P4 +5.0, P1 −0.9.
+   - **AF-T occlusion fell from 95.0 to 70.9.**
+2. **Velocity decay while coasting** (a_coast 0.9, 2 confirmations). On tuning seeds
+   100–104 it *looked* fixed: 83.9 vs 82.0. On held-out seeds it was **−7.5 ± 2.0**. That
+   was a tuning-set artefact, and it is the reason every number here is a held-out number.
+3. **Root cause.** Logging the velocity at the moment coasting starts showed estimates of
+   ±0.01 mm/frame against a true velocity of ~0.0005. A q agile enough for P2's jitter
+   pulls measurement noise into the velocity, and extrapolating that through a 1 s
+   occlusion loses the subject. A q sweep on the P3 slice (tuning seeds), AF-T while
+   occluded:
+   - q = 1e-3: 69.5
+   - q = 3e-4: 91.1, but the P2 gain disappears (90.6 vs 90.4)
+
+   One q cannot do both jobs.
+4. **IMM** (Blom & Bar-Shalom), with q 1e-4 and 1e-3:
+   - AF-T 91.8, but P2 90.3, so no gain.
+   - P2's per-frame manoeuvres are smaller than the measurement noise, so the mode
+     likelihoods barely differ and the IMM settles on the smooth model.
+5. **Two-timescale handover, velocity only.** Two filters see the same gated
+   measurements. The agile one drives the lens. When measurements stop, the agile
+   velocity is replaced by the smooth one. AF-T: 80–87, still short.
+6. **Two-timescale handover, position and velocity, q_lo = 1e-5.** On tuning seeds:
+   - P2 91.2 (agile)
+   - AF-T occluded 89.5, against 88.1 for X2D+
+   - AF-C occluded 85.5, against 84.2
+
+   **Chosen.** The agile filter's *position* had also absorbed the last frames of noise,
+   so handing over both matters.
+
+### Held-out result (20 seeds, DualGated − X2D+, mean ± sem)
+
+| | P1 | P2 | P3 | P4 | overall | occluded |
+|---|---|---|---|---|---|---|
+| AF-C | −0.4 | +1.7 ± 0.4 | +0.5 | +3.7 ± 1.1 | +1.8 ± 0.5 | +1.5 ± 0.5 |
+| AF-T | −0.4 | +1.7 ± 0.4 | +0.4 | +3.7 ± 1.2 | +1.8 ± 0.5 | +2.0 ± 0.9 |
+
+P2 is equal or better on 19 of the 20 seeds. On the P2 slice, DualGated goes from 88.3 to
+90.4 against the 91.8 perfect-measurement bound, so it captures about 60% of the
+measurement headroom.
+
+### The C99 port (af_c/)
+- **Equivalence.** I recorded 54,000 policy calls from the simulator (AF-C and AF-T,
+  3 seeds) and replayed them into C. The double build differs from the Python reference by
+  at most 7.3e-15 mm; the float build by at most 5.2e-6 mm, and no call is off by more than
+  1e-3 mm.
+- **Closed loop.** I drove the simulator with the C float build.
+  - AF-C matches Python to ±0.04 points.
+  - P3 AF-T: the first 20 seeds gave C float − Python = −0.33 ± 0.24, and 4 full-timeline
+    seeds gave −0.7. Borderline, so I ran 30 fresh seeds: +0.00 ± 0.13. Pooled over 50
+    seeds: −0.13 ± 0.12, no offset.
+  - Control: the double build gives +0.03 ± 0.09.
+  - Feeding the double build float32-*rounded inputs* gives +0.22 ± 0.08. So a perturbation
+    that tiny already moves the closed loop by about ±0.2, and float precision is not the
+    limiting factor.
+- **Gotcha.** `-mcpu=cortex_m4` compiled to *software* floating point: the disassembly
+  showed `__aeabi_fadd` and `__aeabi_fmul` calls. `+vfp4d16sp` has to be named. With it
+  the code uses `vadd.f32`/`vmul.f32` and `.text` is 1300 bytes.
+- **Float32 covariance.** A positive-definiteness guard was added to the update. It is a
+  no-op in exact arithmetic and fired 0 times in 108,000 updates (float and double), so it
+  does not change the validated behaviour.
+
+### What this is not
+This is not a new principle. Confidence-gated, temporally filtered PDAF appears in patents
+(US 9910247, US 10044926, US 11985421, KR 20160143803 A) and in libcamera's open-source
+Raspberry Pi AF. The contribution is the calibration, the headroom bound, and an honest
+held-out validation of a modest gain (+1.8 overall). That is well below the system lever:
+the AF loop rate (30 → 60 Hz) is worth +6 overall in the 4-phase ablation.
+
+Files: pdaf_sim/policy_dual.py (new), scripts/run_dual_gated.py (new), out/dual_gated.png
+(new), af_c/ (new: C99 policy, bench, ctypes bridge, test_equiv.py, closed_loop.py,
+README).

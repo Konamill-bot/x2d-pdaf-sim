@@ -17,3 +17,9 @@ dist/
 # Private deployment / strategy docs — never commit
 GITHUB_PUSH.md
 DEPLOYMENT_PLAN*.md
+
+# af_c build outputs (make)
+af_c/*.so
+af_c/bench
+af_c/bench_asan
+*.o

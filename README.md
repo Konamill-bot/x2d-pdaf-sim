@@ -240,6 +240,63 @@ so subject tracking costs nothing elsewhere. Rain frames alone: 73% → 78%
 
 ![4-phase ablation](out/ablation_4phase.png)
 
+## DualGated: confidence-calibrated, two-timescale AF-C policy (+ C99 port)
+
+How much of P2 (1–2% contrast) can better *confidence handling* recover? Not much, the
+simulator says. And the policy that recovers most of it needs a second timescale to stay
+safe under occlusion.
+
+![DualGated vs X2D+](out/dual_gated.png)
+
+- **A. Calibrate confidence → noise.** On the simulator's own PDAF stack at P2 conditions,
+  the depth error is σ(c) ≈ 0.036 · c^−0.93 mm. X2D+ assumes R = 1/c, i.e. σ of 1–2.4 mm,
+  about 30× too wide at high confidence. In every lighting condition tested there were no
+  outliers above 0.6 mm.
+- **B. Headroom.** On the P2 slice (seeds 0–9):
+  - X2D+ scores 88.3%.
+  - Fed a *perfect* measurement it reaches 91.8%.
+  - With zero latency on top it reaches 96.1%.
+
+  So no confidence scheme can add more than ~3.5 points to P2. The rest is pipeline
+  latency against jittery subject motion. DualGated reaches 90.4%, about 60% of that
+  headroom.
+- **C. Held-out comparison.** DualGated combines:
+  - calibrated R and a confidence floor;
+  - a 3.5σ innovation gate, where two consecutive same-sign rejections count as a real
+    step;
+  - two Kalman filters: an *agile* one that drives the lens, and a *smooth* one whose
+    long-horizon state takes over the moment measurements stop.
+
+  Parameters were tuned on seeds 100–109 only. Validated on 20 other seeds, paired against
+  X2D+ (mean ± sem):
+
+| DualGated − X2D+ | P1 teleport | P2 low-con | P3 occlusion | P4 harsh+rain | overall | while occluder fills AF area |
+|---|---|---|---|---|---|---|
+| AF-C | −0.4 | **+1.7 ± 0.4** | +0.5 | **+3.7 ± 1.1** | **+1.8 ± 0.5** | +1.5 ± 0.5 |
+| AF-T | −0.4 | **+1.7 ± 0.4** | +0.4 | **+3.7 ± 1.2** | **+1.8 ± 0.5** | **+2.0 ± 0.9** |
+
+The calibrated noise model brings the P2 gain. The gate brings the P4 gain: it rejects
+aliasing and rain outliers. The cost is P1 −0.4, because a real jump now has to be
+confirmed by a second measurement.
+
+**Why two timescales.** A single filter tuned agile enough for P2 fills its velocity
+estimate with measurement noise. Extrapolating that noise through a 1 s occlusion lost the
+subject: AF-T scored −7.5 in the first version. An IMM fixed AF-T but gave back the P2
+gain. Handing over from the agile filter to the smooth one keeps both. Every failed
+variant is in `DEV_LOG.md`.
+
+**Honest scale.** This is a modest, validated engineering gain (+1.8 overall), well below
+the loop-rate lever (30 → 60 Hz: 75 → 81 overall in the 4-phase ablation above). Confidence-weighted PDAF filtering is
+established practice; see the patents and libcamera's open-source Raspberry Pi AF under
+Citations. What this section contributes is the calibration, the headroom bound and the
+held-out validation, not a new principle.
+
+**C99 port ([af_c/](af_c/README.md)).** The same policy in embedded-style C:
+- No heap, a 116-byte state, and a fixed amount of work per tick.
+- About 37 ns per tick on x86-64, and a 1.3 KB `.text` on Cortex-M4F with the hardware FPU.
+- Checked against the Python reference call by call: the double build differs by at most
+  7e-15 mm over 54,000 recorded calls. Also checked closed-loop in the full simulator.
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -250,6 +307,8 @@ so subject tracking costs nothing elsewhere. Rain frames alone: 73% → 78%
   refinement, PSR confidence, multi-zone agreement, CDAF score
 - `pdaf_sim/policy.py` — Stateless / Temporal (Kalman) / V3
   (deadband + PID + CDAF fusion) / Behavioral (fittable) policies
+- `pdaf_sim/policy_dual.py` — **DualGated**: calibrated-confidence, innovation-gated,
+  two-timescale Kalman AF-C policy (Python reference model for `af_c/`)
 - `pdaf_sim/policy2d.py` — V4: 2-D zone grid + subject bounding-box
   Kalman tracker (subject persistence across occlusion)
 - `pdaf_sim/sensor_imx461.py` — IMX461 geometry: 294-zone grid,
@@ -301,6 +360,12 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
   (random 0.6 m–∞ teleports / 1-2% contrast / occlusion / harsh mix + rain),
   realistic servo magnetic motor, 10 seeds. AF-C is scored on following what
   fills the AF area, AF-T on staying on the subject.
+- `scripts/run_dual_gated.py` — **DualGated vs X2D+**: confidence calibration,
+  P2 headroom (perfect-measurement and zero-latency bounds), and the paired
+  comparison on 20 held-out seeds.
+- `af_c/` — **C99 port of DualGated**: no heap, fixed work per tick, ctypes
+  bridge, call-by-call equivalence test against the Python reference, closed-loop
+  check, benchmark, and ARM Cortex-M4F / A53 code-size notes.
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
@@ -319,6 +384,8 @@ pip install -r requirements.txt
 python scripts/run_imx461_stats.py     # headline figure (multi-core, ~2 min)
 python scripts/run_afc.py              # AF-C study, all four figures (~1.5 min)
 python scripts/run_latency_sweep.py    # latency sensitivity figure
+python scripts/run_dual_gated.py       # DualGated vs X2D+ (~15 min; --quick ~3 min)
+cd af_c && make && python3 test_equiv.py   # C port: build + equivalence test
 ```
 
 ## Case study constants
@@ -369,6 +436,21 @@ cross-validate.
 - Capture Integration — *Fujifilm GFX 100S II — Profoundly Better
   Autofocus* (algorithmic-only PDAF improvement across two generations
   with shared hardware)
+
+Related work for DualGated (confidence-weighted PDAF filtering and
+predictive AF are established practice):
+
+- USPTO 10044926 — Optimized phase detection autofocus (PDAF) processing
+  (confidence-thresholded use of PDAF depth)
+- USPTO 11985421 — Device and method for predicted autofocus on an object
+  (Kalman-filter prediction for moving subjects)
+- KR 20160143803 A — Reliability measurements for phase based autofocus
+- libcamera, Raspberry Pi AF algorithm (`src/ipa/rpi/controller/rpi/af.cpp`):
+  open-source PDAF + CDAF autofocus for the IMX708 Camera Module 3, with
+  PDAF confidence thresholds (`conf_thresh`, `conf_epsilon`)
+- H. A. P. Blom and Y. Bar-Shalom, *The interacting multiple model
+  algorithm for systems with Markovian switching coefficients*, IEEE TAC,
+  1988 (the IMM variant tried before the two-timescale handover)
 
 ## License
 
