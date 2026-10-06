@@ -291,11 +291,63 @@ established practice; see the patents and libcamera's open-source Raspberry Pi A
 Citations. What this section contributes is the calibration, the headroom bound and the
 held-out validation, not a new principle.
 
-**C99 port ([af_c/](af_c/README.md)).** The same policy in embedded-style C:
-- No heap, a 116-byte state, and a fixed amount of work per tick.
-- About 37 ns per tick on x86-64, and a 1.3 KB `.text` on Cortex-M4F with the hardware FPU.
-- Checked against the Python reference call by call: the double build differs by at most
-  7e-15 mm over 54,000 recorded calls. Also checked closed-loop in the full simulator.
+**C99 port.** The policy is the "brain" of the C AF chain in [af_c/](af_c/README.md), described
+in the next section. It has no heap, a 116-byte state, and costs ~34 ns per frame. Replaying
+53,619 recorded calls, the double build matches the Python reference to 3.6e-15 mm.
+
+## AF-T with a real tracker, and the whole AF chain in C
+
+The AF-T results above use an **ideal** tracker: the simulator tells it which AF zones the
+occluder covers. A camera has to work that out itself. `pdaf_sim/zone_tracker.py::ZoneTracker`
+does it from per-zone **depth and confidence alone**, with no subject recognition:
+
+- **Subject zones** are those consistent with the brain's predicted subject depth.
+- **An occluder is seen arriving** as an edge block of zones that is *nearer* than the subject,
+  self-consistent, appears while subject zones are still visible, and persists at the same
+  edge and depth. A rain layer lands on scattered zones at a new depth every frame and fails
+  this test.
+- **The occluder becomes a second track.** Zones it explains are never taken as the subject,
+  and its depth is frozen while it hides the subject. Without that freeze, the occluder track
+  drifted onto the subject.
+- **Small depth gaps.** An occluder only ~0.15 mm nearer is found by segmenting the frame
+  itself, comparing zones with zones, because the prediction-based gate is too wide for it.
+- **Sudden whole-area change.** If every zone changes at once with no occluder seen
+  arriving, the subject moved, and the tracker re-acquires immediately.
+
+![AF-T real vs ideal tracker](out/aft_tracker.png)
+
+The tracker was developed on seeds 100–114. These numbers are from 20 seeds (30–49) not
+looked at until the design was frozen (in-focus %, AF-T scored on the subject):
+
+| | P1 | P2 | P3 | P4 | overall | occluder fills AF area | subject partly covered | subject fully hidden |
+|---|---|---|---|---|---|---|---|---|
+| AF-T, ideal tracker | 94.4 | 91.0 | 98.4 | 73.4 | 86.1 | 91.3 | 98.6 | 88.9 |
+| **AF-T, real tracker** | 94.3 | 91.0 | 95.1 | **75.1** | **86.1** | **84.4** | **92.7** | **81.6** |
+| real − ideal (sem) | −0.0 | −0.0 | −3.3 ± 0.8 | +1.7 ± 1.4 | +0.0 ± 0.7 | −6.9 ± 1.9 | −5.9 ± 1.9 | −7.3 ± 2.6 |
+
+Overall it matches the ideal tracker. It gives up about 7 points while the subject is hidden
+and wins them back in the harsh phase, where it drops rain-hit zones the ideal tracker keeps.
+For comparison, AF-C (which correctly follows the occluder) is on the subject only 9–19% of
+the time while the occluder fills the AF area (4-phase ablation). The remaining misses are honest limits of
+depth-only tracking:
+- an occluder within measurement noise of the subject's depth;
+- a subject that changes direction while hidden;
+- an occluder that covers the whole AF area within one frame (it looks like subject motion).
+
+**The whole chain in C ([af_c/](af_c/README.md)).** The eyes (FFT phase correlation per zone),
+the tracker and the brain are all ported to C99: no heap, fixed work per frame, ~200 µs per
+frame on one x86-64 core (1.2% of a 60 fps frame), 7.1 KB of code on a Cortex-M4F.
+
+- **Equivalence.** Every stage is tested against its Python reference on simulator data:
+  - eyes: 16,730 zone estimates with 0 correlation-peak flips
+  - tracker: 17,619 decisions, 0 different
+  - brain: 3.6e-15 mm in double
+- **Closed loop.** It runs inside the 4-phase simulator.
+- **Standalone.** `af_c/af_demo` is a pure-C closed-loop demo with no Python:
+
+```bash
+cd af_c && make && ./af_demo && make check
+```
 
 ## What's in this repo
 
@@ -309,6 +361,8 @@ held-out validation, not a new principle.
   (deadband + PID + CDAF fusion) / Behavioral (fittable) policies
 - `pdaf_sim/policy_dual.py` — **DualGated**: calibrated-confidence, innovation-gated,
   two-timescale Kalman AF-C policy (Python reference model for `af_c/`)
+- `pdaf_sim/zone_tracker.py` — **ZoneTracker**: depth-only AF-T subject tracker
+  (subject / occluder zone association), plus per-zone estimates and the multi-zone combine
 - `pdaf_sim/policy2d.py` — V4: 2-D zone grid + subject bounding-box
   Kalman tracker (subject persistence across occlusion)
 - `pdaf_sim/sensor_imx461.py` — IMX461 geometry: 294-zone grid,
@@ -363,9 +417,12 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 - `scripts/run_dual_gated.py` — **DualGated vs X2D+**: confidence calibration,
   P2 headroom (perfect-measurement and zero-latency bounds), and the paired
   comparison on 20 held-out seeds.
-- `af_c/` — **C99 port of DualGated**: no heap, fixed work per tick, ctypes
-  bridge, call-by-call equivalence test against the Python reference, closed-loop
-  check, benchmark, and ARM Cortex-M4F / A53 code-size notes.
+- `scripts/run_aft_tracker.py` — **AF-T with the real tracker vs the ideal one**,
+  through a per-zone AF chain whose stages are swappable (Python or C).
+- `af_c/` — **the whole AF chain in C99** (eyes, tracker, brain, chain): no heap,
+  a standalone C demo (`af_demo`), pure-C unit tests (`make check`), stage-by-stage
+  equivalence tests against the Python references, a closed-loop check, a benchmark,
+  and ARM Cortex-M4F / A53 code-size notes.
 - `FINDINGS.md` — direct behavioural observations of the X2D 100C,
   organized by causal layer, cross-referenced with reviews and patents
 - `DEV_LOG.md` — development log capturing intermediate hypotheses,
@@ -385,7 +442,9 @@ python scripts/run_imx461_stats.py     # headline figure (multi-core, ~2 min)
 python scripts/run_afc.py              # AF-C study, all four figures (~1.5 min)
 python scripts/run_latency_sweep.py    # latency sensitivity figure
 python scripts/run_dual_gated.py       # DualGated vs X2D+ (~15 min; --quick ~3 min)
-cd af_c && make && python3 test_equiv.py   # C port: build + equivalence test
+python scripts/run_aft_tracker.py      # AF-T real vs ideal tracker (~15 min; --quick ~3 min)
+cd af_c && make && ./af_demo && make check   # the AF chain in C: demo + unit tests
+python3 af_c/test_equiv.py             # every C stage vs its Python reference
 ```
 
 ## Case study constants

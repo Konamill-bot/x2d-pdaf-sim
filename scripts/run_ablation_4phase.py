@@ -164,12 +164,14 @@ def afc_target_mm(subj, occ, occ_d):
     return t
 
 
-def measure(tex, lens, tgt_mm, con, bright, fog, dist, occ, occ_d, rain, accum, nrng, rng, aft=False):
+def render_views(tex, lens, tgt_mm, con, bright, fog, dist, occ, occ_d, rain, accum, nrng, rng, aft=False):
+    """The PDAF left/right views the sensor delivers this frame, as (L, R, n_occ), or None
+    when there is no measurement (dropout; or, with the ideal AF-T tracker, subject hidden)."""
     if dist == "dropout" and rng.random() < 0.35:
-        return None, None, None
+        return None
     n_occ = int(np.ceil(occ * NZ - 1e-9))                     # zones covered by the occluder
     if aft and n_occ >= NZ:                                   # tracker: subject fully hidden
-        return None, None, None
+        return None
     sharp, occ_tex, rain_tex = tex
     veil = (1.0 - fog) * (1.0 - 0.3 * rain)                   # fog / rain haze lowers contrast
     def flatten(img, c): return img.mean() + c * (img - img.mean())
@@ -191,9 +193,16 @@ def measure(tex, lens, tgt_mm, con, bright, fog, dist, occ, occ_d, rain, accum, 
                 for z in hit:
                     rs = _zone_rows(z); L[rs] = 0.4 * L[rs] + 0.6 * Lr[rs]; R[rs] = 0.4 * R[rs] + 0.6 * Rr[rs]
         Ls.append(L + nrng.normal(0, noise, L.shape)); Rs.append(R + nrng.normal(0, noise, R.shape))
-    L = np.mean(Ls, 0).astype(np.float32); R = np.mean(Rs, 0).astype(np.float32)
+    return np.mean(Ls, 0).astype(np.float32), np.mean(Rs, 0).astype(np.float32), n_occ
+
+
+def measure(tex, lens, tgt_mm, con, bright, fog, dist, occ, occ_d, rain, accum, nrng, rng, aft=False):
+    v = render_views(tex, lens, tgt_mm, con, bright, fog, dist, occ, occ_d, rain, accum, nrng, rng, aft)
+    if v is None:
+        return None, None, None
+    L, R, n_occ = v
     nz = NZ
-    if aft and n_occ:                                         # tracker drops the occluded zones
+    if aft and n_occ:                                         # ideal tracker drops the occluded zones
         r0 = _zone_rows(n_occ).start; L = L[r0:]; R = R[r0:]; nz = NZ - n_occ
     disp, c = estimate_disparity_multi_zone(L, R, max_disp_px=X.MAX_DISP_PX, n_zones=nz)
     disp_mm = disp / PPM; cs = cdaf_score((L + R) * 0.5)

@@ -21,5 +21,7 @@ DEPLOYMENT_PLAN*.md
 # af_c build outputs (make)
 af_c/*.so
 af_c/bench
-af_c/bench_asan
+af_c/test_c
+af_c/af_demo
+af_c/*_asan
 *.o

@@ -26,11 +26,7 @@
 #ifndef AF_DUAL_GATED_H
 #define AF_DUAL_GATED_H
 
-#ifdef AF_REAL_DOUBLE
-typedef double af_real;
-#else
-typedef float af_real;
-#endif
+#include "af_util.h"
 
 typedef struct {
     af_real s0;          /* measurement noise calibration: sigma(c) = s0 * c^-p  (mm) */
@@ -63,5 +59,10 @@ void    af_default_params(af_params *prm);
 void    af_init(af_state *st, const af_params *prm);
 af_real af_step(af_state *st, af_real d, af_real c, af_real lens);
 af_real af_coast(af_state *st);
+
+/* Where the subject should be at the next measurement: position (mm) and variance, without
+ * changing any state (the smooth filter while coasting, else the agile one). Returns 0 and
+ * leaves x, var untouched before the first track. */
+int     af_predict(const af_state *st, af_real *x, af_real *var);
 
 #endif /* AF_DUAL_GATED_H */

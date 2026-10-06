@@ -9,15 +9,6 @@
 /* af_dual_gated.c -- see af_dual_gated.h. Mirrors pdaf_sim/policy_dual.py::DualGated,
  * the Python reference model (af_c/test_equiv.py checks the two against each other). */
 #include "af_dual_gated.h"
-#include <math.h>
-
-#ifdef AF_REAL_DOUBLE
-#define AF_POW  pow
-#define AF_SQRT sqrt
-#else
-#define AF_POW  powf
-#define AF_SQRT sqrtf
-#endif
 
 #ifdef AF_COUNT_PD_FIXES
 long af_pd_fixes = 0;                  /* test hook: how often the PD guard fired */
@@ -166,4 +157,14 @@ af_real af_coast(af_state *st)
     enter_coast(st);
     predict_both(st);
     return cmd(st);
+}
+
+int af_predict(const af_state *st, af_real *x, af_real *var)
+{
+    const af_kf *k = st->coasting ? &st->s : &st->a;
+    af_real q = st->coasting ? st->prm.q_lo : st->prm.q_hi;
+    if (!st->initialized) return 0;
+    *x = k->x0 + k->x1;
+    *var = k->p00 + 2 * k->p01 + k->p11 + q / 3;
+    return 1;
 }

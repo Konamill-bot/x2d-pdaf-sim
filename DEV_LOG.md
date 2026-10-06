@@ -704,3 +704,97 @@ the AF loop rate (30 → 60 Hz) is worth +6 overall in the 4-phase ablation.
 Files: pdaf_sim/policy_dual.py (new), scripts/run_dual_gated.py (new), out/dual_gated.png
 (new), af_c/ (new: C99 policy, bench, ctypes bridge, test_equiv.py, closed_loop.py,
 README).
+
+## ZoneTracker: a real AF-T tracker, and the whole AF chain in C
+
+### Why
+Every AF-T number so far used an ideal tracker: the simulator told it which zones the
+occluder covered. A camera has to work that out. ZoneTracker works from per-zone depth and
+confidence only, the same information the AF chain already has.
+
+### Groundwork
+- **Split `measure()` into `render_views()` and estimation**, so the tracker can see every
+  zone. A 600-call fingerprint (occlusion, rain, aliasing, dropout, AF-T on/off) is
+  bit-identical before and after, and the AF-C path through the new per-zone chain is
+  bit-identical to `run_ablation_4phase.run` (seed 0, max diff 0.0).
+- **Per-zone noise calibration**, pooled over low/high contrast, fog and dim:
+  σ_zone(c) = 0.031 · c^−1.58 mm. A single zone is much noisier than the 14-zone median: at
+  1–2% contrast and confidence < 0.2, σ = 0.74 mm with 40% outliers.
+- **`DualGated.predict()`**: the predicted subject position and variance for the next
+  measurement. While coasting it uses the smooth filter (see below).
+
+### The path (developed on seeds 100–114), including what failed
+1. **Gate on the prediction; hold when a nearer object covers the area.** With the subject
+   fully hidden, only 16.9% of frames stayed on it. Two holes:
+   - A subject jumping nearer (P1) looked like an occluder. Fix: an occluder needs subject
+     zones and nearer zones in the same frame (partial coverage).
+   - During the hold the prediction variance grows cubically, and the gate swallowed the
+     occluder.
+2. **Track the occluder as a second object.** Fully hidden rose to 61%, but P2 fell 8 points:
+   per-zone noise at low contrast looked like occluders. Fix: a candidate must persist at one
+   depth for several frames.
+3. **Explain-away** (a zone the occluder fits is never the subject) **plus smooth-filter
+   prediction while coasting.** P3 matched the ideal tracker, but P4 collapsed by 24 points
+   and holds rose to 13%. Diagnosis: 16 of 17 occluder tracks started in rain. Rain-hit zones
+   report a confident (c ≈ 1.0), mutually consistent nearer depth, the same as an occluder
+   within a single frame. Fixes, all physical:
+   - the occluder may only explain zones in front of the subject;
+   - persistence is measured against the object's precision (σ/√n), not a single zone's;
+   - the occluder must be a contiguous block at an edge of the AF area. An opaque object
+     moving into view crosses the boundary first; rain lands on scattered zones;
+   - it must stay at the same edge.
+4. **Track swap.** On seed 103 the tracker held for 2.5 s while the subject was in plain
+   view. Updating the occluder's depth during the hold let it drift onto the subject's own
+   zones. Fix: freeze the occluder depth while the subject is hidden.
+5. **Held-out check, and a correction.** Evaluated on seeds 0–9 / 20–29, this version was
+   level overall (+0.6) but 12 points behind the ideal tracker in occlusion. That was much
+   worse than the 5 tuning seeds suggested. Those seeds were now "seen", so the next round
+   used new tuning seeds (105–114) and a fresh validation set (30–49):
+   - The occluder-confirmation count was not the cause (3, 4 and 5 frames scored the same).
+   - 7 of 9 failing events had an occluder only 0.12–0.28 mm nearer than the subject. That
+     is inside the prediction-based gate (≈ 0.24 mm), but ~5 per-zone σ apart.
+   - Fix: segment within the frame. An edge block of subject-gated zones that is clearly
+     nearer than the rest (threshold midway between the edge zone and the median) is a
+     nearer object.
+   - With that, 4 confirmation frames: occluded 81–84%.
+
+### Result: seeds 30–49, not used during development
+
+| | P3 | P4 | overall | occluder fills area | partly covered | fully hidden |
+|---|---|---|---|---|---|---|
+| ideal tracker | 98.4 | 73.4 | 86.1 | 91.3 | 98.6 | 88.9 |
+| real tracker | 95.1 | 75.1 | 86.1 | 84.4 | 92.7 | 81.6 |
+
+Overall it is level with the ideal tracker: about −7 while the subject is hidden, +1.7 in
+the harsh phase (rain zones dropped). It holds the subject while an occluder fills the AF
+area 84% of the time; AF-C, correctly following the occluder, manages 9–19%. Spurious holds
+with no occluder present: 1% of frames. Remaining limits:
+- an occluder within noise of the subject's depth;
+- a subject that changes direction while hidden;
+- an occluder that covers the whole AF area within one frame.
+
+### The chain in C (af_c/)
+- **Modules.** `af_phase` (eyes: radix-2 FFT with two real signals packed in one complex
+  transform, per-zone phase correlation, combine), `af_track` (ZoneTracker), `af_chain`
+  (glue), plus `af_predict` in the brain.
+- **Equivalence on simulator data:**
+  - eyes: 16,730 zone estimates, 0 correlation-peak flips, |Δd| ≤ 4e-5 px
+  - tracker: 17,619 decisions, 0 differ (both builds)
+  - chain: 600 frames, 100% of commands within 1e-3 mm
+- **Closed loop** (12 seeds):
+  - AF-C, C float − Python: within ±0.04 points.
+  - AF-T: +0.90 ± 0.73, and the C **double** control shows the same (+0.87 ± 0.59). So it
+    is trajectory forking (discrete holds), not precision; nothing significant.
+- **Standalone.** `af_demo` is a pure-C closed-loop demo with its own simplified world.
+  `make check` runs 43 pure-C checks. ASan/UBSan clean.
+- **Cost.** ~200 µs per frame on x86-64 (1.2% of a 60 fps frame), almost all of it the eyes.
+  Code size: 7.1 KB on a Cortex-M4F.
+- **Found on the way:**
+  - FFT twiddles computed in double pulled the soft-double library into the M4F build; they
+    now use the build's precision.
+  - `-Werror` flagged `af_median(n = 0)` reading uninitialised memory.
+
+Files: pdaf_sim/zone_tracker.py (new), pdaf_sim/policy_dual.py (predict), scripts/
+run_ablation_4phase.py (render_views split, identical results), scripts/run_aft_tracker.py
+(new), out/aft_tracker.png (new), af_c/ (af_phase, af_track, af_chain, af_util, af_demo,
+test_c, afc.py bridge; equivalence, closed-loop and bench rewritten).

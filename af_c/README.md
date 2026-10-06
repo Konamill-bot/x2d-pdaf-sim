@@ -1,97 +1,145 @@
-# af_c: the DualGated AF-C policy in C99
+# af_c: the whole AF chain in C99
 
-The C port of `pdaf_sim/policy_dual.py::DualGated`. That policy is a confidence-calibrated,
-innovation-gated, two-timescale Kalman AF-C decision policy; the README section
-*"DualGated"* explains why it is built that way. The Python class is the reference model.
-This directory holds the embedded-style implementation, plus the tests that tie the two
-together.
+The camera-side AF code from x2d-pdaf-sim, written as embedded-style C: the eyes, the
+tracker and the brain, glued into one call per frame.
+
+```
+PDAF L/R views --af_phase--> per-zone (disparity, confidence)
+               --af_track (AF-T only)--> the subject's zones --combine--> one measurement
+               --af_dual_gated--> lens command
+```
+
+| file | stage | Python reference model |
+|---|---|---|
+| `af_phase.[ch]` | **eyes**: per-zone phase correlation (radix-2 FFT, partial phase weighting, sub-pixel peak, PSR confidence) and the multi-zone combine | `pdaf_sim/phase_corr.py`, `pdaf_sim/zone_tracker.py::zone_estimates / combine_zones` |
+| `af_track.[ch]` | **AF-T tracker**: which zones are the subject, using depth only | `pdaf_sim/zone_tracker.py::ZoneTracker` |
+| `af_dual_gated.[ch]` | **brain**: calibrated, gated, two-timescale Kalman | `pdaf_sim/policy_dual.py::DualGated` |
+| `af_chain.[ch]` | the loop: AF-C combines every zone; AF-T uses the tracker and coasts while the subject is hidden | `scripts/run_aft_tracker.py::run_chain` |
 
 Simulation research code: it is not derived from any manufacturer's firmware (see
 [DISCLAIMER.md](../DISCLAIMER.md)).
 
-## API
-
-```c
-#include "af_dual_gated.h"
-
-af_params p;  af_state st;
-af_default_params(&p);            /* the validated parameters */
-af_init(&st, &p);
-
-/* once per AF-loop tick, exactly one of: */
-cmd = af_step(&st, d, c, lens);   /* PDAF measurement: defocus d (mm), PSR confidence c,
-                                     lens position (mm) at the time it was exposed */
-cmd = af_coast(&st);              /* no measurement this tick (dropout, subject hidden) */
-```
-
-- **C99.** No heap and no global state (apart from the opt-in `-DAF_COUNT_PD_FIXES` test
-  counter). One `af_state` (116 bytes) per AF instance.
-- **Fixed work per tick.**
-- **Dependencies:** `powf`, once per measurement for σ(c) = 0.036 · c^−0.93; and `sqrtf`, in a
-  covariance guard that never fired in testing.
-- **Precision:** `float` by default. Build with `-DAF_REAL_DOUBLE` for double; the
-  equivalence test uses that build.
-
-## Build and test
+## Run it
 
 ```bash
 cd af_c
-make                         # libafdg_f.so, libafdg_d.so (ctypes), bench
-./bench                      # per-tick cost
-make asan && ./bench_asan    # AddressSanitizer + UndefinedBehaviorSanitizer
-python3 test_equiv.py        # C vs the Python reference, call by call
-python3 closed_loop.py 8     # the full simulator driven by the C float build
+make                      # libraries, ./bench, ./af_demo, ./test_c
+./af_demo                 # pure C, closed loop: AF-C vs AF-T on a scene with an occluder
+make check                # pure-C unit tests (no Python)
+make asan                 # AddressSanitizer + UBSan builds: ./test_c_asan, ./af_demo_asan, ./bench_asan
+./bench                   # cost of each stage per frame
+python3 test_equiv.py     # every C stage vs its Python reference, on simulator data
+python3 closed_loop.py 12 # the 4-phase simulator with every AF stage in C
 ```
 
 Build flags: `-std=c99 -Wall -Wextra -Wpedantic -Werror -Wconversion -Wshadow`. The code
 builds clean with both gcc and clang.
 
+`af_demo` is a self-contained C program. Its miniature world, also written in C, has a
+textured subject swaying in depth, an opaque occluder that slides across the AF area twice,
+defocus blur with the PDAF left/right shift, 3 frames of pipeline latency, and a servo
+voice-coil lens. The world's optics are a simplified 1-D version of the Python simulator;
+the C AF code is the real thing. Sample output:
+
+```
+  time  subject  occluder | AF-C lens     | AF-T lens
+  3.13    1.04    partial |  1.51 OUT     |  1.05 in
+  3.20    1.02     FULL   |  2.59 in      |  1.03 in  (holding)
+  ...
+  4.33    1.03    partial |  2.62 OUT     |  0.99 in
+  4.40    1.04       -    |  1.16 OUT     |  1.05 in
+```
+
+AF-C moves to the occluder while it fills the AF area. AF-T holds the subject and picks it
+straight back up afterwards. In the first crossing the subject reverses direction while
+hidden, and coasting at constant velocity drifts off; the demo prints that limit instead
+of hiding it.
+
+## API
+
+```c
+#include "af_chain.h"
+
+static af_chain ch;                                    /* ~20 KB, no heap */
+af_chain_init(&ch, AF_MODE_T, 256, 64, 14, 48, 1.7185f); /* width, height, zones, max disparity px, px per mm */
+cmd = af_chain_frame(&ch, L, R, lens_at_exposure);     /* each frame with PDAF views */
+cmd = af_chain_coast(&ch);                             /* each frame without */
+```
+
+Each stage is also usable on its own (`af_pc_*`, `af_track_*`, `af_step / af_coast /
+af_predict`).
+
+- **C99.** No heap and no global state. Fixed work per frame.
+- **Memory:** `af_state` is 116 B, `af_track` 72 B, and `af_pc` 19.5 KB (FFT twiddles,
+  window and scratch for up to 512-pixel-wide views).
+- **Precision:** `float` by default; `-DAF_REAL_DOUBLE` builds in double.
+
 ## Verification
 
-| check | result |
-|---|---|
-| **Equivalence, double build vs Python reference.** 54,000 recorded policy calls from the 4-phase simulator, AF-C and AF-T, 3 seeds, replayed open-loop | max \|diff\| **7.3e-15 mm** |
-| **Equivalence, float build vs Python reference.** Same calls | max \|diff\| **5.2e-6 mm**, no call off by more than 1e-3 mm |
-| **ASan + UBSan**, 20 M ticks | clean |
-| **Closed loop.** Simulator driven by the C float build vs the Python reference | AF-C: identical to ±0.04 points (4 seeds). P3 AF-T: −0.13 ± 0.12 points over 50 seeds, i.e. no detectable offset |
+**`test_equiv.py`: each C stage against its Python reference**, on inputs recorded from the
+4-phase simulator:
 
-Closed loop, a 1e-6 mm difference can eventually flip one discrete decision (gate,
-confirm, sweep), and from then on the two trajectories differ. So per-seed scores move a
-little in both directions, even for the double build; compare the means.
+| stage | data | double build | float build |
+|---|---|---|---|
+| brain | 53,619 step / coast / predict calls | max \|diff\| 3.6e-15 mm | 2.3e-6 mm |
+| eyes | 16,730 zone estimates, all four phases | max \|diff\| 4e-5 px, **0** correlation-peak flips | 1e-5 px, **0** flips |
+| tracker | 17,619 decisions | **0** differ | **0** differ |
+| chain | 600 frames of P3 views | 100% of commands within 1e-3 mm | 100% |
 
-How big is that effect? Feeding the *double* build float32-rounded inputs moves P3 AF-T by
-+0.22 ± 0.08 points (30 seeds). At that level the result is limited by how sensitive the
-closed loop is to tiny perturbations, not by single precision.
+The Python eyes do their row averaging in float32, so the float build matches them about as
+closely as the double build does.
+
+**`closed_loop.py`: the simulator driven by C stages vs Python stages** (12 seeds, mean
+difference ± sem in in-focus points):
+
+| | P1 | P2 | P3 | P4 | overall |
+|---|---|---|---|---|---|
+| AF-C, C float − Python | −0.04 | +0.01 | −0.00 | +0.03 | +0.01 ± 0.01 |
+| AF-T, C float − Python | −0.05 | −0.04 | −0.62 ± 0.52 | +2.59 ± 1.89 | +0.90 ± 0.73 |
+| AF-T, **C double** − Python (control) | −0.03 | −0.01 | +0.23 ± 0.46 | +2.09 ± 1.53 | +0.87 ± 0.59 |
+
+Closed loop, one tiny difference can flip one discrete decision (a gate, a hold), and from
+then on the trajectory forks. AF-T has more such decisions, so it spreads more. The double
+build is the control: it shows the same spread as the float build. That makes the spread
+forking, not single precision, and none of these differences is significant.
+
+**Also checked:** `make check` (43 pure-C checks, float and double) and ASan + UBSan builds,
+all clean.
 
 ## Cost and size
 
-| target | result |
+| | result |
 |---|---|
-| x86-64, gcc -O2 | **~37 ns per tick**; the Python reference takes ~28 µs |
-| ARM Cortex-M4F, FPv4-SP hard-float, -Os | **.text 1300 bytes**; hardware FPU (`vadd.f32`, `vmul.f32`); needs only `powf` and `memset` |
-| ARM Cortex-A53, -O2 | **.text 1396 bytes**; needs only `powf` |
+| eyes, 14 zones of 64 × 256 views | ~200 µs per frame on one x86-64 core (-O2) |
+| tracker | ~0.65 µs per frame (including the benchmark's input generation) |
+| brain | ~34 ns per frame |
+| whole chain, AF-T | **~200 µs per frame = 1.2% of a 60 fps frame** |
+| ARM Cortex-M4F (FPv4-SP hard-float, -Os) | `.text` 7.1 KB for all four modules, hardware FPU; needs only `cosf sinf expf tanhf powf memcpy memset` |
+| ARM Cortex-A53 (-O2) | `.text` 26 KB (the loops are unrolled and vectorised) |
+
+In a camera the phase correlation (the eyes) would normally run in the sensor or ISP
+hardware. The ~200 µs here is the cost of doing it in software. The decision stages (tracker
+and brain) cost under a microsecond.
 
 The ARM objects were built with `zig cc` (`pip install ziglang`):
 
 ```bash
 python -m ziglang cc -target thumb-linux-musleabihf -mcpu=cortex_m4+vfp4d16sp -mfloat-abi=hard -Os \
-    -fno-unwind-tables -fno-asynchronous-unwind-tables -std=c99 -c af_dual_gated.c
+    -fno-unwind-tables -fno-asynchronous-unwind-tables -std=c99 -c af_*.c
 python -m ziglang cc -target aarch64-linux-musl -mcpu=cortex_a53 -O2 \
-    -fno-unwind-tables -fno-asynchronous-unwind-tables -std=c99 -c af_dual_gated.c
+    -fno-unwind-tables -fno-asynchronous-unwind-tables -std=c99 -c af_*.c
 ```
 
-**Gotcha found on the way.** `-mcpu=cortex_m4` alone compiled to *software* floating point,
-so every add and multiply became an `__aeabi_f*` library call. The FPU feature has to be
-named explicitly (`+vfp4d16sp`). Always check the disassembly.
+## Things found on the way
 
-## Notes for a real target
-
-- **MCU without a fast `powf`.** Replace σ(c) with a small calibration table. Cameras store
-  these per lens and aperture anyway.
-- **Single-precision covariance.** A single-precision Kalman covariance can lose
-  positive-definiteness after a re-init with a wide prior, because R/S becomes tiny. The
-  update includes a cheap guard. It fired 0 times in 108,000 updates in testing, in both
-  builds (counted with a `-DAF_COUNT_PD_FIXES` build), so it does not change the validated
-  behaviour.
-- **No-FPU targets.** Fixed point (Q16.16) would be the next step for a DSP or a
-  lens-controller MCU without an FPU.
+- **`-mcpu=cortex_m4` alone compiles to software floating point.** Every add and multiply
+  became an `__aeabi_f*` call. The FPU feature has to be named (`+vfp4d16sp`), and the
+  disassembly checked.
+- **FFT twiddles computed in `double` pulled the soft-double library into the M4F build.**
+  They run once, at init, but that still costs code size. They are now computed in the
+  build's own precision.
+- **Single-precision Kalman covariance can lose positive-definiteness** after a re-init with
+  a wide prior. The brain has a guard. It fired 0 times in testing (counted with
+  `-DAF_COUNT_PD_FIXES`).
+- **`-Werror` caught `af_median(n = 0)` reading uninitialised memory.** No caller passes 0,
+  but the function now defends itself.

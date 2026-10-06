@@ -116,6 +116,19 @@ class DualGated:
         self._xs, self._Ps = self._upd(self._xs, self._Ps, z, R)
         return self._cmd()
 
+    def predict(self):
+        """Where the subject should be at the next measurement: (position mm, variance),
+        without changing any state; None before the first track. While coasting this is
+        the smooth filter's prediction: its uncertainty grows at the subject's long-horizon
+        rate, not at the agile filter's."""
+        if self._xa is None:
+            return None
+        if self._coasting:
+            x, Pm = self._pred(self._xs, self._Ps, self.q_lo)
+        else:
+            x, Pm = self._pred(self._xa, self._Pa, self.q_hi)
+        return float(x[0]), float(Pm[0, 0])
+
     def _sweep(self, lens):
         cmd = lens + self._dir * self.sweep_step
         if cmd > self.hi or cmd < self.lo:
