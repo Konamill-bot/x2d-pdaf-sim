@@ -29,12 +29,15 @@ holding at least a quarter of the subject (or of the detector's box).
 
 Configurations, per class:
   depth only   : no detector, as for a subject outside the detector's classes
-  class ROI    : the class's simulated detector + MOT (30 Hz, 3 frames late)
+  class ROI    : the class's simulated detector + MOT (30 Hz, 3 frames late), fused as in
+                 run_2d_identity.py: Tracker2D, where depth leads and vetoes the ROI
+  class ROI, ROI leads : the same detector's cells, measured directly; a measurement that
+                 disagrees with the track's depth is vetoed for up to 6 frames
   ideal ROI    : the exact visible subject, same cell rule (upper bound for fixed cells)
   ideal ROI, fitted window : one PDAF window cut to the visible subject's box instead of
                  fixed cells (upper bound for subject-fitted PDAF)
-  class box, fitted window : one PDAF window cut to the class detector's box (3 frames old);
-                 a measurement that disagrees with the track's depth is vetoed for up to 6 frames
+  class box, fitted window : one PDAF window cut to the class detector's box (3 frames old),
+                 with the same ROI-leads veto
 
 The class parameters (PROFILES) are ASSUMPTIONS set a priori from the points above, not
 measurements of any camera or detector: read the ordering and the reasons, not the decimals.
@@ -77,11 +80,12 @@ PROFILES["bird, open sky"] = dict(PROFILES["bird"], sky=True)
 CLASSES = list(PROFILES)
 LABELS = ["person\n(2 × 2 cells)", "animal\n(1.5 × 1.5 cells)", "bird, busy background\n(≈ ½ × ½ cell)",
           "bird, open sky\n(≈ ½ × ½ cell)"]
-CFGS = ["depth only (no detector)", "class detector → fixed AF cells", "ideal ROI → fixed AF cells",
-        "ideal ROI → PDAF window fitted to the subject", "class detector → PDAF window fitted to its box"]
-COLORS = ["#3C8DDE", "#1D9E75", "#7B4FC9", "#7B4FC9", "#1D9E75"]   # entities as in out/2d_identity.png
-FITTED = [False, False, False, True, True]                          # fitted windows are hatched
-ORDER = [0, 1, 4, 2, 3]                                             # bar order in the figure
+CFGS = ["depth only (no detector)", "class detector → fixed cells, depth leads (Tracker2D)",
+        "ideal ROI → fixed cells", "ideal ROI → PDAF window fitted to the subject",
+        "class detector → fitted PDAF window, ROI leads", "class detector → fixed cells, ROI leads"]
+COLORS = ["#3C8DDE", "#C27C0E", "#7B4FC9", "#7B4FC9", "#1D9E75", "#1D9E75"]
+FITTED = [False, False, False, True, True, False]                   # fitted windows are hatched
+ORDER = [0, 1, 5, 4, 2, 3]                                          # bar order in the figure
 INK, INK2, GRID = I.INK, I.INK2, I.GRID
 
 
@@ -183,7 +187,7 @@ def make_roi(sc, seed, P, rate=2):
 
 def run(seed, cls, cfg):
     P = PROFILES[cls]; sc = scenario(seed, P)
-    roi, boxes = make_roi(sc, seed, P) if cfg in (1, 4) else (None, None)
+    roi, boxes = make_roi(sc, seed, P) if cfg in (1, 4, 5) else (None, None)
     rng = np.random.default_rng(seed + 1); nrng = np.random.default_rng(seed + 8)
     tex_b, tex_s, tex_d = I.bars(rng), I.bars(rng), I.bars(rng)
     if P["sky"]:
@@ -223,9 +227,12 @@ def run(seed, cls, cfg):
             last = brain.coast() if brain.predict() is not None else lens
         else:
             meas, lens_m, j = arr
-            if cfg in (3, 4):
+            if cfg in (3, 4, 5):                        # one measurement per frame
+                if cfg == 5:                            # the detector's cells, combined directly
+                    sel = roi[j - 3] if j >= 3 else None
+                    meas = combine_zones(meas[0][sel], meas[1][sel]) if sel is not None and sel.any() else None
                 pred = brain.predict()
-                if cfg == 4 and meas is not None and pred is not None:
+                if cfg != 3 and meas is not None and pred is not None:
                     z = lens_m - meas[0] / PPM; sig = ZS0 * max(meas[1], 0.05) ** -ZP
                     if (z - pred[0]) ** 2 > 3.5 ** 2 * (pred[1] + sig * sig):   # the box disagrees with the track
                         nconf += 1
@@ -270,17 +277,17 @@ def figure(M, n):
     plt.rcParams.update({"axes.edgecolor": GRID, "axes.labelcolor": INK2, "xtick.color": INK2,
                          "ytick.color": INK2, "axes.titlecolor": INK, "font.size": 10})
     fig, ax = plt.subplots(1, 2, figsize=(15, 6.4), gridspec_kw={"width_ratios": [1.35, 1]})
-    xg = np.arange(len(CLASSES)); w = 0.16
+    xg = np.arange(len(CLASSES)); w = 0.135
     for a, (col, title) in zip(ax, [(0, "in focus on the subject, whole clip (%)"),
                                     (2, "lens on the DISTRACTOR after a crossing (%, lower = better)")]):
         a.grid(axis="y", color=GRID, lw=1); a.set_axisbelow(True)
         for sp in ("top", "right"): a.spines[sp].set_visible(False)
         for i, c in enumerate(ORDER):
             m = [M[(cls, c)][0][col] for cls in CLASSES]; se = [M[(cls, c)][1][col] for cls in CLASSES]
-            b = a.bar(xg + (i - 2) * w, m, w - 0.02, yerr=se, color=COLORS[c], label=CFGS[c], capsize=2,
+            b = a.bar(xg + (i - 2.5) * w, m, w - 0.016, yerr=se, color=COLORS[c], label=CFGS[c], capsize=2,
                       hatch="////" if FITTED[c] else None, edgecolor="white", linewidth=0,
                       error_kw={"lw": 1, "ecolor": INK2})
-            if c in (1, 4):                             # direct labels on the detector series only
+            if c in (4, 5):                             # direct labels on the ROI-led detector series only
                 a.bar_label(b, labels=[f"{v:.0f}" for v in m], padding=4, fontsize=9, color=INK)
         a.set_xticks(xg); a.set_xticklabels(LABELS, fontsize=9); a.set_title(title, fontsize=10.5)
         a.set_ylim(0, 108)
