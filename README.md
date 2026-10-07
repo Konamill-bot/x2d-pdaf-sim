@@ -527,6 +527,47 @@ phase-detection block would measure that window, and such blocks have rules of t
 Cost per frame on one x86-64 core: 3.8 µs to measure a 48 × 16 window, veto and steer; 33 ns
 when the ISP delivers the window's result.
 
+## ISP model B: one ROI per frame, split into zones
+
+Many ISPs don't measure a window cut to the subject at all. PD statistics come on a grid of
+small blocks, and the AF reads one ROI per frame, split into a few zones that each return
+their own disparity and confidence. Two things follow:
+- **A small subject is measured by a zone**, not by a window cut to fit it.
+- **A camera's advertised number of AF zones can be the positions an AF point may take, not
+  the number measured at once.** With one ROI per frame, the AF cannot watch the whole frame.
+  The 2-D studies above measure every cell in every frame, which is optimistic for such an
+  ISP, above all without a detector.
+
+`scripts/run_isp_roi_zones.py` places the ROI on the detector's box and uses the zone the box
+fills most (`pdaf_sim/roi.py: ZonedRoi`). The assumptions are generic placeholders:
+- 3 × 3 zones on 4 × 8 px statistics blocks
+- ROI sizes in powers of two blocks
+- zones at least 24 px wide (the disparity search) and 4 rows tall
+- one frame before a new ROI takes effect
+- floating-point output
+
+![ISP model B](out/isp_roi_zones.png)
+
+| in focus on the subject (20 seeds) | person | animal | bird, busy background | bird, open sky |
+|---|---|---|---|---|
+| window = the detector's box | 96.4% | 90.8% | 82.0% | 93.3% |
+| one window, ISP rules (above) | 95.8% | 86.5% | 25.1% | 90.3% |
+| **one ROI split into 3 × 3 zones** | **96.8%** | **90.7%** | **67.0%** | **89.2%** |
+
+- **Zones recover most of the bird:** 67.0% against 25.1% for a single window under ISP rules
+  (paired +41.9 ± 3.0 points). People and animals do as well as with an ideal window; the
+  bird against sky loses 4 points.
+- **What decides the bird is how big a zone is next to it.** Changing one assumption at a
+  time (paired, 20 seeds):
+  - 8 × 16 px blocks: −35.1 points
+  - zones at least 48 px wide: −33.0
+  - ROI sizes not limited to powers of two: +10.2 (smaller zones)
+  - two frames before a new ROI takes effect: only −4.3
+- **The number of zones should be odd.** 3 × 3 gets 67.0%, while 2 × 2 gets 23.4%, 4 × 4 39.7%
+  and a single zone 48.0%. With the ROI centred on the subject, an odd count puts a whole zone
+  on its centre. An even count runs zone edges through it, which splits the subject between
+  zones that all see background.
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -607,6 +648,8 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 - `scripts/run_subject_classes.py` — **AF-T by subject class** (person, animal, bird): detector
   quality, fixed AF cells vs a PDAF window fitted to the subject.
 - `scripts/run_isp_window.py` — what an ISP's PDAF window rules cost, per class and one rule at a time.
+- `scripts/run_isp_roi_zones.py` — ISP model B: one ROI per frame split into zones, per class and one
+  assumption at a time.
 - `af_c/` — **the whole AF chain in C99** (eyes, tracker, brain, chain): no heap,
   a standalone C demo (`af_demo`), pure-C unit tests (`make check`), stage-by-stage
   equivalence tests against the Python references, a closed-loop check, a benchmark,
@@ -637,6 +680,7 @@ python scripts/run_2d_identity.py      # 2-D grid + identity (~5 min)
 python scripts/run_realism_gaps.py     # CDAF verification + gain calibration (~11 min)
 python scripts/run_subject_classes.py  # people, animals, birds (~9 min)
 python scripts/run_isp_window.py       # the ISP's window rules (~4 min)
+python scripts/run_isp_roi_zones.py    # ISP model B: one ROI, zones (~4 min)
 ```
 
 ## Case study constants

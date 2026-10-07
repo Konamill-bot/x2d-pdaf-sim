@@ -944,3 +944,37 @@ af_c/test_roi.py:
 - Python's estimate_disparity returns a meaningless value on a window too narrow for its
   +-max_disp search, while af_pc_window refuses that window. The ISP's minimum width keeps
   every window valid.
+
+## ISP model B: one ROI per frame, split into zones
+
+Prompted by how ISPs commonly deliver PDAF statistics. PD statistics come on a fine block grid,
+and the AF reads one ROI per frame, split into a few zones that each return (disparity,
+confidence). A camera's advertised number of AF zones can be the positions an AF point may take,
+not the number measured at once.
+
+**The model** (pdaf_sim/roi.py: ZonedRoi; scripts/run_isp_roi_zones.py, 20 seeds). Generic:
+- 3 x 3 zones on 4 x 8 px blocks
+- ROI sizes in powers of two blocks
+- zones >= 24 px wide and >= 4 rows tall
+- +1 frame for a new ROI
+- floating-point output
+The AF uses the zone the detector's box fills most.
+
+| in focus % | person | animal | bird, busy | bird, sky |
+|---|---|---|---|---|
+| window = box | 96.4 | 90.8 | 82.0 | 93.3 |
+| one window, ISP rules | 95.8 | 86.5 | 25.1 | 90.3 |
+| one ROI, 3 x 3 zones | 96.8 | 90.7 | 67.0 | 89.2 |
+
+**Bird in clutter, one assumption changed at a time** (paired, against 67.0):
+- 1 zone -19.0; 2 x 2 -43.5; 4 x 4 -27.2
+- zones >= 48 px -33.0; 8 x 16 px blocks -35.1; no power-of-two sizes +10.2
+- +2 frames -4.3
+
+**What it shows.**
+- The size of a zone relative to the subject decides it.
+- The zone count should be odd. With the ROI centred on the subject, an odd count keeps a whole
+  zone on the subject's centre; an even count puts zone edges through it.
+
+**Caveat for the 2-D studies.** They measure every cell every frame. With one ROI per frame, a
+depth-only tracker sees only its ROI's zones and would have to steer the ROI. Not modelled yet.

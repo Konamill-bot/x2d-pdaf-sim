@@ -86,7 +86,9 @@ cmd = af_chain_frame_box(&ch, L, R, win, lens);        /* ...or measure the wind
 
 The window's measurement is used unless its depth disagrees with the track; then it is vetoed
 for at most 5 frames, after which the detector wins (`af_roi_gate`). `has = 0` (no box this
-frame) coasts the brain.
+frame) coasts the brain. For an ISP that returns several zones of one ROI (ISP model B in the main
+README), pass the chosen zone's result, or `af_pc_combine` of several, to `af_chain_frame_roi`.
+The zone layout itself (`pdaf_sim/roi.py: ZonedRoi`) is not ported to C yet.
 
 - **C99.** No heap and no global state. Fixed work per frame.
 - **Memory:** `af_state` is 116 B, `af_track` 72 B, and `af_pc` 19.5 KB (FFT twiddles,
