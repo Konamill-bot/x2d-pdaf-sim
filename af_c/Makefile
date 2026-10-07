@@ -1,8 +1,8 @@
 .PHONY: all asan check test clean
 CC      ?= cc
 CFLAGS  ?= -O2 -std=c99 -Wall -Wextra -Wpedantic -Werror -Wconversion -Wshadow
-SRC     := af_dual_gated.c af_phase.c af_track.c af_chain.c
-HDR     := af_util.h af_dual_gated.h af_phase.h af_track.h af_chain.h
+SRC     := af_dual_gated.c af_phase.c af_track.c af_chain.c af_roi.c
+HDR     := af_util.h af_dual_gated.h af_phase.h af_track.h af_chain.h af_roi.h
 
 all: libafc_f.so libafc_d.so bench af_demo test_c
 
@@ -28,6 +28,7 @@ check: test_c                   # pure C, no Python needed
 test: libafc_f.so libafc_d.so   # C vs the Python reference models
 	python3 test_equiv.py
 	python3 closed_loop.py
+	python3 test_roi.py
 
 clean:
 	rm -f *.so bench test_c af_demo bench_asan test_c_asan af_demo_asan

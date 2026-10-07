@@ -78,6 +78,23 @@ int main(void)
     for (i = 0; i < 4000; i++) sink += (double)af_chain_frame(&ch, Lv, Rv, (af_real)1.2);
     printf("chain   (AF-T: eyes + tracker + brain): %8.1f us per frame  (%.2f%% of a 60 fps frame)\n",
            (now_ns() - t0) / 4000.0 / 1000.0, (now_ns() - t0) / 4000.0 / 1e9 * 60.0 * 100.0);
+    {   /* subject-box AF (AF_MODE_ROI): one PDAF window fitted to the detector's box */
+        static af_chain cr;
+        af_win w48, w56;
+        w48.y0 = 16; w48.y1 = 32; w48.x0 = 192; w48.x1 = 240;
+        w56 = w48; w56.x1 = 248;
+        af_chain_init(&cr, AF_MODE_ROI, W, H, 1, 48, (af_real)1.7185);
+        t0 = now_ns();
+        for (i = 0; i < 200000; i++) sink += (double)af_chain_frame_box(&cr, Lv, Rv, w48, (af_real)1.2);
+        printf("ROI     (48 x 16 window, veto, brain)   : %8.2f us per frame\n", (now_ns() - t0) / 200000.0 / 1000.0);
+        t0 = now_ns();
+        for (i = 0; i < 100000; i++) sink += (double)af_chain_frame_box(&cr, Lv, Rv, (i & 1) ? w56 : w48, (af_real)1.2);
+        printf("ROI     (window width changes each frame): %8.2f us per frame\n", (now_ns() - t0) / 100000.0 / 1000.0);
+        t0 = now_ns();
+        for (i = 0; i < 20000000; i++)
+            sink += (double)af_chain_frame_roi(&cr, 1, (af_real)(4.0 * urand() - 2.0), (af_real)0.8, (af_real)1.2);
+        printf("ROI     (ISP window result: veto, brain): %8.1f ns per frame\n", (now_ns() - t0) / 20000000.0);
+    }
     printf("state: af_state %zu B, af_track %zu B, af_pc %zu B, af_chain %zu B   (sink %.3g)\n",
            sizeof(af_state), sizeof(af_track), sizeof(af_pc), sizeof(af_chain), sink);
     return 0;

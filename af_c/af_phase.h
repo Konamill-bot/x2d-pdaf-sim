@@ -52,6 +52,13 @@ void af_pc_strip(af_pc *pc, const float *L, const float *R, int rows, int stride
 void af_pc_zones(af_pc *pc, const float *L, const float *R, int h, int n_zones,
                  af_real *disp_px, af_real *conf);
 
+/* One window of row-major views `stride` floats wide: rows y0..y1-1, columns x0..x1-1 (e.g.
+ * a PDAF window fitted to a subject's box, see af_roi.h). Re-initialises pc when the window
+ * width changes; the caller keeps y1 within the views. Returns 0, or -1 with confidence 0 if
+ * the window is empty, outside the row, or too narrow for the +-max_disp search. */
+int  af_pc_window(af_pc *pc, const float *L, const float *R, int stride, int y0, int y1, int x0, int x1,
+                  af_real *disp_px, af_real *conf);
+
 /* Combine the zones where mask[i] != 0 (mask NULL = all): median disparity and
  * agreement-weighted confidence with the near-focus bonus. */
 void af_pc_combine(const af_real *disp_px, const af_real *conf, const unsigned char *mask,

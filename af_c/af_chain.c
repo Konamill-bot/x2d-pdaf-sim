@@ -17,9 +17,10 @@ int af_chain_init(af_chain *ch, int mode, int width, int height, int n_zones,
     af_params bp; af_track_params tp;
     if (n_zones < 1 || n_zones > AF_MAX_ZONES || height < n_zones || px_per_mm <= 0) return -1;
     if (af_pc_init(&ch->pc, width, max_disp_px) != 0) return -1;
-    ch->mode = mode; ch->height = height; ch->n_zones = n_zones; ch->px_per_mm = px_per_mm;
+    ch->mode = mode; ch->width = width; ch->height = height; ch->n_zones = n_zones; ch->px_per_mm = px_per_mm;
     af_default_params(&bp); af_init(&ch->brain, &bp);
     af_track_default_params(&tp); af_track_init(&ch->tr, &tp);
+    af_roi_gate_init(&ch->gate);
     ch->held = 0;
     return 0;
 }
@@ -52,6 +53,25 @@ af_real af_chain_frame_zones(af_chain *ch, const af_real *disp_px, const af_real
     for (i = 0; i < nz; i++) any |= ch->mask[i];
     af_pc_combine(ch->disp, ch->conf, any ? ch->mask : 0, nz, &d, &c);
     return af_step(&ch->brain, d / ch->px_per_mm, c, lens);
+}
+
+af_real af_chain_frame_roi(af_chain *ch, int has, af_real disp_px, af_real conf, af_real lens)
+{
+    af_real x = 0, var = 0;
+    int track = af_predict(&ch->brain, &x, &var);
+    if (has && !af_roi_gate_check(&ch->gate, lens - disp_px / ch->px_per_mm, conf, track, x, var))
+        has = 0;                                          /* vetoed: its depth disagrees with the track */
+    ch->held = !has;
+    if (!has) return track ? af_coast(&ch->brain) : lens; /* no track yet: hold the lens */
+    return af_step(&ch->brain, disp_px / ch->px_per_mm, conf, lens);
+}
+
+af_real af_chain_frame_box(af_chain *ch, const float *L, const float *R, af_win win, af_real lens)
+{
+    af_real d = 0, c = 0;
+    int ok = win.y1 <= ch->height &&
+             af_pc_window(&ch->pc, L, R, ch->width, win.y0, win.y1, win.x0, win.x1, &d, &c) == 0;
+    return af_chain_frame_roi(ch, ok, d, c, lens);
 }
 
 af_real af_chain_coast(af_chain *ch)

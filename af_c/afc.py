@@ -11,7 +11,10 @@
   CEyes      -> pdaf_sim.zone_tracker.zone_estimates   (af_phase.c)
   CTracker   -> pdaf_sim.zone_tracker.ZoneTracker      (af_track.c)
   CDualGated -> pdaf_sim.policy_dual.DualGated         (af_dual_gated.c)
-  CChain     -> the whole loop in one call per frame   (af_chain.c)
+  CChain     -> the whole loop in one call per frame   (af_chain.c; mode "roi": subject box)
+  CWindowEyes-> phase_corr.estimate_disparity on one window (af_pc_window)
+  CRoiGate   -> pdaf_sim.roi.RoiGate                   (af_roi.c)
+  c_isp_fit  -> pdaf_sim.roi.IspWindow.fit             (af_roi.c)
 
 double=True loads the double-precision build (used to compare against the references).
 """
@@ -44,6 +47,15 @@ def _lib(double):
         _fields_ = [("s0", R), ("p", R), ("c_floor", R), ("gate", R), ("m_min", C.c_int), ("k_occ", C.c_int),
                     ("occ_tol", R), ("occ_confirm", C.c_int), ("occ_window", C.c_int), ("max_hold", C.c_int)]
 
+    class Win(C.Structure):
+        _fields_ = [("y0", C.c_int), ("y1", C.c_int), ("x0", C.c_int), ("x1", C.c_int)]
+
+    class Isp(C.Structure):
+        _fields_ = [("align", C.c_int), ("min_w", C.c_int), ("min_h", C.c_int)]
+
+    class Gate(C.Structure):
+        _fields_ = [("gate", R), ("c_floor", R), ("s0", R), ("p", R), ("max_veto", C.c_int), ("n", C.c_int)]
+
     for name, args, res in [
         ("af_default_params", [C.POINTER(Params)], None), ("af_init", [C.POINTER(State), C.POINTER(Params)], None),
         ("af_step", [C.POINTER(State), R, R, R], R), ("af_coast", [C.POINTER(State)], R),
@@ -57,8 +69,15 @@ def _lib(double):
         ("af_chain_sizeof", [], C.c_ulong),
         ("af_chain_init", [C.c_void_p, C.c_int, C.c_int, C.c_int, C.c_int, C.c_int, R], C.c_int),
         ("af_chain_frame", [C.c_void_p, F32, F32, R], R), ("af_chain_coast", [C.c_void_p], R),
+        ("af_pc_window", [C.c_void_p, F32, F32, C.c_int, C.c_int, C.c_int, C.c_int, C.c_int, P, P], C.c_int),
+        ("af_isp_fit", [C.POINTER(Isp), Win, C.c_int, C.c_int], Win),
+        ("af_roi_gate_init", [C.POINTER(Gate)], None),
+        ("af_roi_gate_check", [C.POINTER(Gate), R, R, C.c_int, R, R], C.c_int),
+        ("af_chain_frame_roi", [C.c_void_p, C.c_int, R, R, R], R),
+        ("af_chain_frame_box", [C.c_void_p, F32, F32, Win, R], R),
     ]:
         f = getattr(lib, name); f.argtypes = args; f.restype = res
+    lib.Win, lib.Isp, lib.Gate = Win, Isp, Gate
     _LIBS[double] = (lib, R, np.float64 if double else np.float32, Params, State, TrackParams)
     return _LIBS[double]
 
@@ -117,14 +136,53 @@ class CTracker:
 
 
 class CChain:
-    """The whole AF loop in C: frame(L, R, lens_at_exposure) -> lens command; coast()."""
+    """The whole AF loop in C: frame(L, R, lens_at_exposure) -> lens command; coast().
+    Mode "roi": frame_roi(has, disparity px, confidence, lens) with one window's result (from an
+    ISP's PDAF block), or frame_box(L, R, (y0, y1, x0, x1), lens) to measure the window in C."""
     def __init__(self, mode, width, height, n_zones, max_disp_px, px_per_mm, double=False):
         self._lib, self._R, self._dt, *_ = _lib(double)
         self._buf = C.create_string_buffer(int(self._lib.af_chain_sizeof()))
-        assert self._lib.af_chain_init(self._buf, 1 if mode == "aft" else 0, width, height, n_zones,
+        assert self._lib.af_chain_init(self._buf, {"afc": 0, "aft": 1, "roi": 2}[mode], width, height, n_zones,
                                        max_disp_px, px_per_mm) == 0
     def frame(self, L, R, lens):
         L = np.ascontiguousarray(L, dtype=np.float32); R = np.ascontiguousarray(R, dtype=np.float32)
         return float(self._lib.af_chain_frame(self._buf, _ptr(L, C.c_float), _ptr(R, C.c_float), lens))
     def coast(self):
         return float(self._lib.af_chain_coast(self._buf))
+    def frame_roi(self, has, d, c, lens):
+        return float(self._lib.af_chain_frame_roi(self._buf, int(bool(has)), d, c, lens))
+    def frame_box(self, L, R, win, lens):
+        L = np.ascontiguousarray(L, dtype=np.float32); R = np.ascontiguousarray(R, dtype=np.float32)
+        return float(self._lib.af_chain_frame_box(self._buf, _ptr(L, C.c_float), _ptr(R, C.c_float),
+                                                  self._lib.Win(*(int(v) for v in win)), lens))
+
+
+class CWindowEyes:
+    """Callable(L, R, (y0, y1, x0, x1)) -> (disparity px, confidence) of one window, like
+    estimate_disparity(L[y0:y1, x0:x1], R[y0:y1, x0:x1]); None if C refuses the window."""
+    def __init__(self, max_disp_px, width=512, double=False):
+        self._lib, self._R, self._dt, *_ = _lib(double)
+        self._buf = C.create_string_buffer(int(self._lib.af_pc_sizeof()))
+        assert self._lib.af_pc_init(self._buf, width, max_disp_px) == 0
+    def __call__(self, L, R, win):
+        L = np.ascontiguousarray(L, dtype=np.float32); R = np.ascontiguousarray(R, dtype=np.float32)
+        d = self._R(); c = self._R(); y0, y1, x0, x1 = (int(v) for v in win)
+        ok = self._lib.af_pc_window(self._buf, _ptr(L, C.c_float), _ptr(R, C.c_float), L.shape[1],
+                                    y0, y1, x0, x1, C.byref(d), C.byref(c))
+        return (float(d.value), float(c.value)) if ok == 0 else None
+
+
+class CRoiGate:
+    """Drop-in for pdaf_sim.roi.RoiGate (check)."""
+    def __init__(self, double=False):
+        self._lib = _lib(double)[0]; self._g = self._lib.Gate(); self._lib.af_roi_gate_init(C.byref(self._g))
+    def check(self, z, conf, pred):
+        has, x, v = (0, 0.0, 0.0) if pred is None else (1, pred[0], pred[1])
+        return bool(self._lib.af_roi_gate_check(C.byref(self._g), z, conf, has, x, v))
+
+
+def c_isp_fit(box, width, height, align=8, min_w=48, min_h=8, double=False):
+    """af_isp_fit on box (y0, y1, x0, x1) -> the window (y0, y1, x0, x1); mirrors IspWindow.fit."""
+    lib = _lib(double)[0]
+    w = lib.af_isp_fit(C.byref(lib.Isp(align, min_w, min_h)), lib.Win(*(int(v) for v in box)), width, height)
+    return w.y0, w.y1, w.x0, w.x1

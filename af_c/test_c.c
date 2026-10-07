@@ -164,9 +164,65 @@ static void test_chain_zones(void)
     CHECK(worst == 0, "af_chain_frame_zones must equal af_chain_frame on the same zones (worst %.3g)", (double)worst);
 }
 
+static void test_roi(void)
+{
+    static af_pc pc, pc2; static af_chain a, b2;
+    af_isp isp; af_win bx, w; af_roi_gate g;
+    af_real d1, c1, d2, c2, ca, cb, worst = 0;
+    int i, f, bad = 0, used = 0;
+    /* af_isp_fit: minimum size, inside the frame, on the grid, covering a box inside the frame */
+    af_isp_default(&isp);
+    for (i = 0; i < 5000; i++) {
+        bx.x0 = (int)(urand() * 540.0) - 20; bx.x1 = bx.x0 + 1 + (int)(urand() * 150.0);
+        bx.y0 = (int)(urand() * 70.0) - 4;   bx.y1 = bx.y0 + 1 + (int)(urand() * 24.0);
+        w = af_isp_fit(&isp, bx, 512, 64);
+        if (w.x1 - w.x0 < isp.min_w || w.y1 - w.y0 < isp.min_h || w.x0 < 0 || w.y0 < 0 || w.x1 > 512 ||
+            w.y1 > 64 || w.x0 % isp.align || w.y0 % isp.align || w.x1 % isp.align || w.y1 % isp.align) bad++;
+        if (bx.x0 >= 0 && bx.x1 <= 512 && bx.y0 >= 0 && bx.y1 <= 64 &&
+            (w.x0 > bx.x0 || w.x1 < bx.x1 || w.y0 > bx.y0 || w.y1 < bx.y1)) bad++;
+    }
+    CHECK(bad == 0, "af_isp_fit: %d of 5000 windows broke a rule", bad);
+    /* af_roi_gate: a disagreeing measurement is vetoed 5 times in a row, then trusted */
+    af_roi_gate_init(&g);
+    for (i = 0; i < 10; i++)
+        used += af_roi_gate_check(&g, (af_real)2.0, (af_real)0.9, 1, (af_real)1.0, (af_real)1e-4);
+    CHECK(used == 1, "gate: %d of 10 disagreeing frames used (want 1: the 6th)", used);
+    CHECK(af_roi_gate_check(&g, (af_real)1.0, (af_real)0.9, 1, (af_real)1.0, (af_real)1e-4) == 1 && g.n == 0,
+          "gate: an agreeing measurement must be used and reset the count");
+    CHECK(af_roi_gate_check(&g, (af_real)5.0, (af_real)0.9, 0, (af_real)0, (af_real)0) == 1,
+          "gate: with no track yet, every measurement is used");
+    /* af_pc_window: equals af_pc_strip on the same pixels; refuses a window too narrow to search */
+    make_profile(); fill(0, H, 3.0);
+    af_pc_init(&pc, W, 48); af_pc_strip(&pc, Lv, Rv, H, W, &d1, &c1);
+    CHECK(af_pc_window(&pc, Lv, Rv, W, 0, H, 0, W, &d2, &c2) == 0 && d1 == d2 && c1 == c2,
+          "af_pc_window over the whole view must equal af_pc_strip");
+    af_pc_init(&pc2, 64, 48); af_pc_strip(&pc2, Lv + 4 * W + 8, Rv + 4 * W + 8, 8, W, &d1, &c1);
+    CHECK(af_pc_window(&pc, Lv, Rv, W, 4, 12, 8, 72, &d2, &c2) == 0 && d1 == d2 && c1 == c2 &&
+          AF_FABS(d2 + (af_real)3.0) < 0.3, "64 px window: %+.3f (want -3, equal to af_pc_strip)", (double)d2);
+    CHECK(af_pc_window(&pc, Lv, Rv, W, 0, H, 0, 8, &d2, &c2) != 0 && c2 == 0,
+          "a window too narrow for the disparity search must be refused");
+    /* AF_MODE_ROI: frame_box = frame_roi fed af_pc_window; a missing box holds, then coasts */
+    af_chain_init(&a, AF_MODE_ROI, W, H, 1, 48, (af_real)1.7185);
+    af_chain_init(&b2, AF_MODE_ROI, W, H, 1, 48, (af_real)1.7185);
+    CHECK(af_chain_frame_roi(&b2, 0, 0, 0, (af_real)1.7) == (af_real)1.7, "no box and no track yet: hold the lens");
+    for (f = 0; f < 120; f++) {
+        double s = 2.0 * sin(f * 0.07) + (f > 60 && f < 80 ? 6.0 : 0.0);   /* motion + a jump */
+        af_win win;
+        win.y0 = 4; win.y1 = 12; win.x0 = 8 + f % 16; win.x1 = win.x0 + 64;
+        fill(0, H, s);
+        af_pc_window(&pc, Lv, Rv, W, win.y0, win.y1, win.x0, win.x1, &d1, &c1);
+        ca = af_chain_frame_box(&a, Lv, Rv, win, (af_real)1.2);
+        cb = af_chain_frame_roi(&b2, 1, d1, c1, (af_real)1.2);
+        if (AF_FABS(ca - cb) > worst) worst = AF_FABS(ca - cb);
+    }
+    CHECK(worst == 0, "af_chain_frame_box must equal af_chain_frame_roi fed af_pc_window (worst %.3g)", (double)worst);
+    CHECK(AF_FABS(af_chain_frame_roi(&a, 0, 0, 0, (af_real)1.2) - af_chain_coast(&b2)) < 1e-6 && a.held,
+          "a missing box must coast exactly like af_chain_coast");
+}
+
 int main(void)
 {
-    test_phase(); test_combine(); test_brain(); test_tracker(); test_chain_zones();
+    test_phase(); test_combine(); test_brain(); test_tracker(); test_chain_zones(); test_roi();
     printf("%s: %d checks passed, %d failed (%s build)\n", fails ? "FAIL" : "OK", passes, fails,
            sizeof(af_real) == 8 ? "double" : "float");
     return fails ? 1 : 0;

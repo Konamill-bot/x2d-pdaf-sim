@@ -59,7 +59,8 @@ X = I.X
 from pdaf_sim.dualpixel import render_lr
 from pdaf_sim.phase_corr import estimate_disparity
 from pdaf_sim.policy_dual import DualGated
-from pdaf_sim.zone_tracker import combine_zones, ZS0, ZP
+from pdaf_sim.zone_tracker import combine_zones
+from pdaf_sim.roi import RoiGate
 
 FPS, NFR, H, W, NR, NC, CH, CW = I.FPS, I.NFR, I.H, I.W, I.NR, I.NC, I.CH, I.CW
 MD_CELL, PPM, LAT, DB, ROW, COL = I.MD_CELL, I.PPM, I.LAT, I.DB, I.ROW, I.COL
@@ -181,23 +182,34 @@ def make_roi(sc, seed, P, rate=2):
         if x1 - x0 < 8:                                 # jittered off the frame
             continue
         box = np.zeros((H, W), bool); box[y0:y1, x0:x1] = True
-        roi[k], boxes[k] = cells(box), (slice(y0, y1), slice(x0, x1))
+        roi[k], boxes[k] = cells(box), (y0, y1, x0, x1)
     return roi, boxes
 
 
-def run(seed, cls, cfg):
+def _py_eyes(L, R, w):
+    """estimate_disparity on window w = (y0, y1, x0, x1) of the views."""
+    return estimate_disparity(L[w[0]:w[1], w[2]:w[3]], R[w[0]:w[1], w[2]:w[3]], max_disp_px=MD_CELL)
+
+
+def run(seed, cls, cfg, isp=None, impl=None):
+    """One clip; returns the lens track. isp (config 4): the ISP's rules for the fitted window,
+    dict(win=IspWindow, lat=extra frames before a new window takes effect, quant=fixed-point
+    output) -- see run_isp_window.py. impl: dict(eyes=callable(L, R, window), chain=a C chain in
+    ROI mode) swaps C stages in (af_c/test_roi.py)."""
     P = PROFILES[cls]; sc = scenario(seed, P)
     roi, boxes = make_roi(sc, seed, P) if cfg in (1, 4, 5) else (None, None)
+    lat = isp["lat"] if isp else 0; quant = bool(isp and isp["quant"])
+    eyes = (impl or {}).get("eyes", _py_eyes); chain = (impl or {}).get("chain")
     rng = np.random.default_rng(seed + 1); nrng = np.random.default_rng(seed + 8)
     tex_b, tex_s, tex_d = I.bars(rng), I.bars(rng), I.bars(rng)
     if P["sky"]:
         tex_b = np.full_like(tex_b, 0.5)                # open sky: nothing behind the bird to lock on
     bg_mm = X.focus_mm(12.0)
-    brain = DualGated(); t2 = I.Tracker2D(); lb = X.LatencyBuffer(LAT)
+    brain = DualGated(); gate = RoiGate(); t2 = I.Tracker2D(); lb = X.LatencyBuffer(LAT)
     c0 = cells(masks(sc, 0, P)[0])                      # the user's tap: the subject's centre
     t2.pos = np.array([ROW[c0].mean(), COL[c0].mean()])
     lens = X.focus_mm(sc["ds"][0]); last = lens; motor = X.make_motor(lens, X.SPEED_TARGET)
-    track = np.zeros(NFR); own = [None] * NFR; nconf = 0
+    track = np.zeros(NFR); own = [None] * NFR
     for k in range(NFR):
         ms, md = masks(sc, k, P); own[k] = cells(ms)
         Lb, Rb = render_lr(tex_b, lens - bg_mm, X.F_MM, X.FNUM, X.DIST, X.PIX, noise_sigma=0.0)
@@ -211,10 +223,14 @@ def run(seed, cls, cfg):
         if cfg in (3, 4):                               # one PDAF window cut to a box
             win = None
             if cfg == 3 and ms.any():                   # the subject's exact visible box
-                ys, xs = np.nonzero(ms); win = (slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1))
-            elif cfg == 4 and k >= 3:                   # the detector's latest box (3 frames old)
-                win = boxes[k - 3]
-            meas = None if win is None else estimate_disparity(L[win], R[win], max_disp_px=MD_CELL)
+                ys, xs = np.nonzero(ms); win = (ys.min(), ys.max() + 1, xs.min(), xs.max() + 1)
+            elif cfg == 4 and k >= 3 + lat and boxes[k - 3 - lat] is not None:
+                win = boxes[k - 3 - lat]                # the detector's box: 3 frames old, + the ISP's delay
+                if isp:
+                    win = isp["win"].fit(*win, W, H)    # the window the ISP actually measures
+            meas = None if win is None else eyes(L, R, win)
+            if meas is not None and quant:              # the ISP's fixed-point output
+                meas = (round(meas[0] * 16) / 16, round(meas[1] * 255) / 255)
         else:
             dc = np.zeros((NR, NC)); cc = np.zeros((NR, NC))
             for r in range(NR):
@@ -231,19 +247,16 @@ def run(seed, cls, cfg):
                 if cfg == 5:                            # the detector's cells, combined directly
                     sel = roi[j - 3] if j >= 3 else None
                     meas = combine_zones(meas[0][sel], meas[1][sel]) if sel is not None and sel.any() else None
-                pred = brain.predict()
-                if cfg != 3 and meas is not None and pred is not None:
-                    z = lens_m - meas[0] / PPM; sig = ZS0 * max(meas[1], 0.05) ** -ZP
-                    if (z - pred[0]) ** 2 > 3.5 ** 2 * (pred[1] + sig * sig):   # the box disagrees with the track
-                        nconf += 1
-                        if nconf < 6: meas = None       # veto, unless the detector insists
-                        else: nconf = 0
-                    else:
-                        nconf = 0
-                if meas is None:
-                    last = brain.coast() if pred is not None else lens   # no track yet: hold
+                if chain is not None:                   # the C chain: veto + brain in one call
+                    last = chain.frame_roi(meas is not None, *(meas or (0.0, 0.0)), lens_m)
                 else:
-                    last = brain.step(meas[0] / PPM, meas[1], 0.0, lens_m)
+                    pred = brain.predict()
+                    if cfg != 3 and meas is not None and not gate.check(lens_m - meas[0] / PPM, meas[1], pred):
+                        meas = None                     # vetoed: its depth disagrees with the track
+                    if meas is None:
+                        last = brain.coast() if pred is not None else lens   # no track yet: hold
+                    else:
+                        last = brain.step(meas[0] / PPM, meas[1], 0.0, lens_m)
                 lens = motor.command(last); track[k] = lens
                 continue
             dpx, cz = meas

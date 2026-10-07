@@ -133,6 +133,16 @@ void af_pc_zones(af_pc *pc, const float *L, const float *R, int h, int n_zones,
     }
 }
 
+int af_pc_window(af_pc *pc, const float *L, const float *R, int stride, int y0, int y1, int x0, int x1,
+                 af_real *disp_px, af_real *conf)
+{
+    *disp_px = 0; *conf = 0;
+    if (y0 < 0 || y1 <= y0 || x0 < 0 || x1 > stride) return -1;
+    if (x1 - x0 != pc->n && af_pc_init(pc, x1 - x0, pc->max_disp) != 0) return -1;
+    af_pc_strip(pc, L + y0 * stride + x0, R + y0 * stride + x0, y1 - y0, stride, disp_px, conf);
+    return 0;
+}
+
 void af_pc_combine(const af_real *disp_px, const af_real *conf, const unsigned char *mask,
                    int n, af_real *disp_out, af_real *conf_out)
 {
