@@ -186,6 +186,18 @@ def make_roi(sc, seed, P, rate=2):
     return roi, boxes
 
 
+def best_zone(box, zr):
+    """Of the zones of the ROI an ISP places for the box (pdaf_sim.roi.ZonedRoi), the one the
+    box fills most, or None."""
+    y0, y1, x0, x1 = box; best, cov = None, 0.0
+    for z in zr.layout(y0, y1, x0, x1, W, H):
+        f = (max(0, min(y1, z[1]) - max(y0, z[0])) * max(0, min(x1, z[3]) - max(x0, z[2]))
+             / ((z[1] - z[0]) * (z[3] - z[2])))
+        if f > cov:
+            best, cov = z, f
+    return best
+
+
 def _py_eyes(L, R, w):
     """estimate_disparity on window w = (y0, y1, x0, x1) of the views."""
     return estimate_disparity(L[w[0]:w[1], w[2]:w[3]], R[w[0]:w[1], w[2]:w[3]], max_disp_px=MD_CELL)
@@ -194,7 +206,8 @@ def _py_eyes(L, R, w):
 def run(seed, cls, cfg, isp=None, impl=None):
     """One clip; returns the lens track. isp (config 4): the ISP's rules for the fitted window,
     dict(win=IspWindow, lat=extra frames before a new window takes effect, quant=fixed-point
-    output) -- see run_isp_window.py. impl: dict(eyes=callable(L, R, window), chain=a C chain in
+    output) -- see run_isp_window.py; or dict(zones=ZonedRoi, ...): one ROI split into zones,
+    measuring the zone the box fills most -- see run_isp_roi_zones.py. impl: dict(eyes=callable(L, R, window), chain=a C chain in
     ROI mode) swaps C stages in (af_c/test_roi.py)."""
     P = PROFILES[cls]; sc = scenario(seed, P)
     roi, boxes = make_roi(sc, seed, P) if cfg in (1, 4, 5) else (None, None)
@@ -226,7 +239,9 @@ def run(seed, cls, cfg, isp=None, impl=None):
                 ys, xs = np.nonzero(ms); win = (ys.min(), ys.max() + 1, xs.min(), xs.max() + 1)
             elif cfg == 4 and k >= 3 + lat and boxes[k - 3 - lat] is not None:
                 win = boxes[k - 3 - lat]                # the detector's box: 3 frames old, + the ISP's delay
-                if isp:
+                if isp and isp.get("zones"):            # one ROI split into zones: the zone the box fills most
+                    win = best_zone(win, isp["zones"])
+                elif isp:
                     win = isp["win"].fit(*win, W, H)    # the window the ISP actually measures
             meas = None if win is None else eyes(L, R, win)
             if meas is not None and quant:              # the ISP's fixed-point output
