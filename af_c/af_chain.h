@@ -43,6 +43,10 @@ int     af_chain_init(af_chain *ch, int mode, int width, int height, int n_zones
                       int max_disp_px, af_real px_per_mm);
 /* One frame of views (row-major, width floats per row) exposed at lens position `lens`. */
 af_real af_chain_frame(af_chain *ch, const float *L, const float *R, af_real lens);
+/* One frame of per-zone results from a hardware PDAF block (most real sensors / ISPs deliver
+ * these instead of raw L/R views): disparity in px and confidence for each of the n_zones
+ * zones, exposed at lens position `lens`. Skips af_phase; everything after it is identical. */
+af_real af_chain_frame_zones(af_chain *ch, const af_real *disp_px, const af_real *conf, af_real lens);
 /* No views this frame (dropout, pipeline warm-up). */
 af_real af_chain_coast(af_chain *ch);
 

@@ -26,9 +26,16 @@ int af_chain_init(af_chain *ch, int mode, int width, int height, int n_zones,
 
 af_real af_chain_frame(af_chain *ch, const float *L, const float *R, af_real lens)
 {
+    af_pc_zones(&ch->pc, L, R, ch->height, ch->n_zones, ch->disp, ch->conf);
+    return af_chain_frame_zones(ch, ch->disp, ch->conf, lens);
+}
+
+af_real af_chain_frame_zones(af_chain *ch, const af_real *disp_px, const af_real *conf, af_real lens)
+{
     af_real d, c, x = 0, var = 0;
     int i, nz = ch->n_zones, any = 0;
-    af_pc_zones(&ch->pc, L, R, ch->height, nz, ch->disp, ch->conf);
+    if (disp_px != ch->disp)
+        for (i = 0; i < nz; i++) { ch->disp[i] = disp_px[i]; ch->conf[i] = conf[i]; }
     ch->held = 0;
     if (ch->mode == AF_MODE_C) {
         af_pc_combine(ch->disp, ch->conf, 0, nz, &d, &c);

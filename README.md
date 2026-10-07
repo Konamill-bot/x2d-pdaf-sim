@@ -349,6 +349,86 @@ frame on one x86-64 core (1.2% of a 60 fps frame), 7.1 KB of code on a Cortex-M4
 cd af_c && make && ./af_demo && make check
 ```
 
+## Four realism gaps, tested
+
+The chain above still simplifies four things a real camera faces. Each was tested here; one
+result is negative.
+
+**1 + 2. A 2-D AF grid, and subject identity** ()
+
+![2-D grid and identity](out/2d_identity.png)
+
+A small subject (1 × 2 cells of a 4 × 8 grid) wanders in 2-D and in depth in front of a far
+background. Twice per clip, a distractor crosses it *at exactly its depth*. Results over 20
+seeds, with parameters set a priori:
+
+| | in focus on the subject | 0.5–2.5 s after a crossing | lens on the distractor after a crossing |
+|---|---|---|---|
+| AF-C, whole area | 0.3% | 0.0% | — |
+| 1-D bands + ZoneTracker | 0.5% | 0.3% | — |
+| 2-D cells, depth only | 75.0% | 62.0% | 23.2% |
+| **2-D + simulated visual ROI** | **98.7%** | **97.7%** | **5.6%** |
+| 2-D + ideal ROI | 100% | 100% | 0% |
+
+- **Full-width bands can't hold a small subject.** The subject is a minority of every band,
+  so the band's correlation peak is the background's. 2-D cells are the precondition for
+  tracking anything small.
+- **Depth alone can't tell two objects at the same depth apart.** After a crossing, the
+  depth-only tracker ends up on the distractor 23% of the time.
+- **The simulated ROI is deliberately imperfect:** 30 Hz, 3 frames late, 10% misses,
+  one-cell jitter, and a 30% chance per crossing of switching identity onto the distractor.
+- **Depth checks the ROI.** When the ROI's cells are at the wrong depth while the subject is
+  still seen near its predicted position, the ROI is overruled. That catches most identity
+  switches: 5.6% of frames on the distractor, against 23.2% for depth only.
+- **The architecture this supports:** the visual tracker says *where* the subject is, and the
+  PDAF depth engine says *whether that is still the subject* and carries it between
+  detections. The ROI here is a generic simulated detector plus multi-object tracker. Python
+  only for now.
+
+**3. Contrast (CDAF) verification of new locks: a negative result** (, off by default)
+
+![realism gaps](out/realism_gaps.png)
+
+After every re-acquisition, the contrast is compared with the contrast held before the
+jump, and a drop starts a contrast hill-climb.
+- On the harsh phase's periodic-texture frames it helps: AF-C +12.9 ± 7.3.
+- Overall it costs more than it gains: AF-C −2.3, AF-T −2.6 (10 seeds). It checks contrast
+  before the lens has finished long throws (P1 −8.8), and it compares different objects, such
+  as an occluder's texture against the subject's (P3 −7.3).
+
+The fix is known but not built: check only once the lens has arrived, and test for a local
+contrast peak (probe ±δ) instead of comparing against a reference taken on another object.
+
+**4. PDAF gain calibration** (, )
+
+The gain K that converts disparity into defocus comes from a table. On a real body it moves
+with lens, aperture, focus position, image height and temperature. P1 in-focus % with the
+table deliberately wrong (AF-C, random teleports, 6 seeds):
+
+| table error | −40% | −20% | 0 | +20% | +40% |
+|---|---|---|---|---|---|
+| table only | **17.1%** | 91.4% | 94.2% | 92.3% | 90.9% |
+| + online self-calibration | **92.9%** | 90.4% | 94.1% | 92.2% | 90.9% |
+
+- **The closed loop tolerates ±20%,** because every step re-measures.
+- **An under-estimated gain is dangerous.** It over-drives every correction, and at −40% the
+  loop breaks down.
+- **Self-calibration rescues it** to 92.9%, with K within 1% of the true value. It uses the
+  lens's own moves: with the subject still, moving the lens by dL changes the disparity by
+  K·dL.
+- **The estimate is still noisy** where few still-subject moves happen (end-of-run error
+  −26% to +19%). That is harmless at these magnitudes but needs smoothing before production.
+
+On the input side,  now also accepts per-zone disparity and confidence straight from a
+hardware PDAF block (), which is what most real sensors deliver.
+
+**Lens speed cap with the new chain** (, 20 seeds). Going from
+4000 to 10000 steps/s adds +1.7 overall for AF-C and +1.5 for AF-T. Its value is in long
+throws:
+- After a 3–9 mm jump, the median time to focus drops from 333 ms to 183 ms (p90 433 → 233 ms).
+- AF-C switches onto a near occluder faster (p90 367 → 192 ms).
+- Small, continuous motion is unchanged.
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture

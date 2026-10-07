@@ -52,10 +52,23 @@ class DualGated:
     lo: float = 0.0              # lens travel limits (mm)
     hi: float = 7.0
     handover_pos: bool = True    # on coast entry take the smooth position too, not just velocity
+    # CDAF verification (opt-in; off = the validated policy). After every re-acquisition on a
+    # new plane, the new lock is checked by contrast: PDAF can lock confidently on a false plane
+    # (periodic texture), contrast cannot. A lock whose contrast falls below cdaf_ratio x the
+    # contrast held before the jump starts a contrast hill-climb; PDAF resumes at its peak.
+    cdaf_verify: bool = False
+    cdaf_window: int = 30        # steps after a re-acquisition in which the lock is checked
+    cdaf_settle: int = 6         # steps the new lock gets to settle before the check
+    cdaf_ratio: float = 0.6
+    cdaf_step: float = 0.5       # hill-climb step (mm)
+    cdaf_max_steps: int = 8
     _xa: np.ndarray | None = None; _Pa: np.ndarray | None = None      # agile
     _xs: np.ndarray | None = None; _Ps: np.ndarray | None = None      # smooth
     _coasting: bool = False
     _low: int = 0; _dir: int = 1; _nrej: int = 0; _rsign: int = 0
+    _cs_peak: float = 0.0; _pre_peak: float = 0.0; _since_jump: int = 1 << 30
+    _climb: int = 0; _climb_pos: float = 0.0; _climb_start: float = 0.0; _climb_n: int = 0
+    _climb_wait: int = 0; _best_lens: float = 0.0; _best_cs: float = -1.0; _reversed: bool = False
 
     @staticmethod
     def _pred(x, Pm, q):
@@ -90,6 +103,8 @@ class DualGated:
         self._coasting = True
 
     def step(self, d, c, cs, lens):
+        if self._climb:
+            return self._climb_step(c, cs, lens)
         z = lens - d
         R = (self.s0 * max(c, self.c_floor) ** -self.p) ** 2
         if self._xa is None:
@@ -110,10 +125,51 @@ class DualGated:
             self._nrej = self._nrej + 1 if s == self._rsign else 1; self._rsign = s
             if self._nrej >= self.n_confirm:        # persistent => real step
                 self._init(z, R)
+                if self.cdaf_verify:                # verify the new plane by contrast
+                    self._pre_peak = self._cs_peak; self._since_jump = 0
             return self._cmd()
         self._nrej = 0; self._coasting = False
         self._xa, self._Pa = self._upd(self._xa, self._Pa, z, R)
         self._xs, self._Ps = self._upd(self._xs, self._Ps, z, R)
+        if self.cdaf_verify:
+            if self._since_jump < self.cdaf_window:
+                self._since_jump += 1
+                if (self._since_jump >= self.cdaf_settle and self._pre_peak > 0
+                        and cs < self.cdaf_ratio * self._pre_peak):
+                    return self._start_climb(cs, lens)
+            else:
+                self._cs_peak = max(cs, self._cs_peak * 0.995)   # contrast held while tracking
+        return self._cmd()
+
+    def _start_climb(self, cs, lens):
+        self._climb, self._climb_start, self._best_lens, self._best_cs = 1, lens, lens, cs
+        self._climb_n, self._climb_wait, self._reversed = 0, 0, False
+        self._since_jump = self.cdaf_window
+        self._climb_pos = float(np.clip(lens + self.cdaf_step, self.lo, self.hi))
+        return self._climb_pos
+
+    def _climb_step(self, c, cs, lens):
+        """One step of the contrast hill-climb, on the measurement exposed at `lens`."""
+        self._climb_wait += 1
+        if abs(lens - self._climb_pos) > 0.05 and self._climb_wait < 15:
+            return self._climb_pos                  # that frame was exposed before the probe
+        self._climb_wait = 0; self._climb_n += 1
+        if cs > self._best_cs:
+            self._best_cs, self._best_lens = cs, lens
+            nxt = self._climb_pos + self._climb * self.cdaf_step
+        elif not self._reversed and self._best_lens == self._climb_start:
+            self._reversed = True; self._climb = -self._climb       # first probe went the wrong way
+            nxt = self._climb_start + self._climb * self.cdaf_step
+        else:
+            return self._end_climb(c)
+        if self._climb_n >= self.cdaf_max_steps or nxt < self.lo or nxt > self.hi:
+            return self._end_climb(c)
+        self._climb_pos = float(nxt)
+        return self._climb_pos
+
+    def _end_climb(self, c):
+        self._climb = 0
+        self._init(self._best_lens, (self.s0 * max(c, self.c_floor) ** -self.p) ** 2)
         return self._cmd()
 
     def predict(self):
@@ -137,6 +193,8 @@ class DualGated:
         return float(cmd)
 
     def coast(self):
+        if self._climb:
+            return self._climb_pos
         if self._xa is None:
             return 0.0
         self._enter_coast(); self._predict_both(); return self._cmd()

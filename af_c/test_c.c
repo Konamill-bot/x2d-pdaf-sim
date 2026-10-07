@@ -11,6 +11,7 @@
 #include "af_chain.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 
 static int fails = 0, passes = 0;
 #define CHECK(cond, ...) do { if (cond) passes++; else { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); \
@@ -142,9 +143,30 @@ static void test_tracker(void)
     CHECK(t.occ_life == 0, "scattered nearer zones must not start an occluder track");
 }
 
+static void test_chain_zones(void)
+{
+    /* af_chain_frame_zones fed the eyes' per-zone output must equal af_chain_frame */
+    static af_chain a, b; static af_pc pc;
+    af_real d[14], c[14], ca, cb, worst = 0;
+    int f;
+    make_profile();
+    af_chain_init(&a, AF_MODE_T, W, H, 14, 48, (af_real)1.7185);
+    af_chain_init(&b, AF_MODE_T, W, H, 14, 48, (af_real)1.7185);
+    af_pc_init(&pc, W, 48);
+    for (f = 0; f < 120; f++) {
+        double s = 2.0 * sin(f * 0.07) + (f > 60 && f < 80 ? 6.0 : 0.0);  /* motion + a jump */
+        fill(0, f > 60 && f < 80 ? 20 : 0, s + 5.0); fill(f > 60 && f < 80 ? 20 : 0, H, s);
+        af_pc_zones(&pc, Lv, Rv, H, 14, d, c);
+        ca = af_chain_frame(&a, Lv, Rv, (af_real)1.2);
+        cb = af_chain_frame_zones(&b, d, c, (af_real)1.2);
+        if (AF_FABS(ca - cb) > worst) worst = AF_FABS(ca - cb);
+    }
+    CHECK(worst == 0, "af_chain_frame_zones must equal af_chain_frame on the same zones (worst %.3g)", (double)worst);
+}
+
 int main(void)
 {
-    test_phase(); test_combine(); test_brain(); test_tracker();
+    test_phase(); test_combine(); test_brain(); test_tracker(); test_chain_zones();
     printf("%s: %d checks passed, %d failed (%s build)\n", fails ? "FAIL" : "OK", passes, fails,
            sizeof(af_real) == 8 ? "double" : "float");
     return fails ? 1 : 0;

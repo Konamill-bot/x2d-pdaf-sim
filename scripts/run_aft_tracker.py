@@ -37,7 +37,9 @@ spec = importlib.util.spec_from_file_location("run_ablation_4phase", os.path.joi
 A = importlib.util.module_from_spec(spec); sys.modules["run_ablation_4phase"] = A; spec.loader.exec_module(A)
 from pdaf_sim.scene import high_contrast
 from pdaf_sim.policy_dual import DualGated
-from pdaf_sim.zone_tracker import ZoneTracker, zone_estimates, combine_zones
+from pdaf_sim.zone_tracker import ZoneTracker, zone_estimates, combine_zones, zone_rows
+from pdaf_sim.phase_corr import cdaf_score
+from pdaf_sim.calib import KSelfCal
 X = A.X
 X.DualGated = DualGated
 NZ, PPM, ALIAS = A.NZ, A.PPM, A.ALIAS
@@ -52,10 +54,15 @@ def wrap(d_mm):
     return ((d_mm + ALIAS / 2) % ALIAS) - ALIAS / 2
 
 
-def run_chain(seed, mode, brain=None, tracker=None, eyes=py_eyes, k0=0, k1=None, log=False):
+def run_chain(seed, mode, brain=None, tracker=None, eyes=py_eyes, k0=0, k1=None, log=False,
+              ppm_scale=1.0, selfcal=False, klog=None):
     """Closed loop over frames [k0, k1) of the 4-phase timeline. mode: "afc" (all zones)
     or "aft" (zones chosen by `tracker`). Returns the lens trajectory (and a per-frame
-    hold log for AF-T when log=True). RNG use matches run_ablation_4phase.run."""
+    hold log for AF-T when log=True). RNG use matches run_ablation_4phase.run.
+
+    ppm_scale: the camera's PDAF gain table is off by this factor (1.0 = exact).
+    selfcal: refine the gain online (pdaf_sim.calib.KSelfCal); klog collects its estimates.
+    The brain also receives the contrast score of the zones it measures from."""
     k1 = A.N if k1 is None else k1
     subj, con, bright, fog, dist, occ, occ_d, rain = A.build_timeline(seed=seed)
     rng = np.random.default_rng(seed + 1); nrng = np.random.default_rng(seed + 8)
@@ -65,34 +72,49 @@ def run_chain(seed, mode, brain=None, tracker=None, eyes=py_eyes, k0=0, k1=None,
         tracker = ZoneTracker()
     lb = X.LatencyBuffer(X.LATENCY)
     lens = X.focus_mm(subj[k0]); last = lens; motor = X.make_motor(lens, X.SPEED_TARGET)
+    kcal = KSelfCal(k0=PPM * ppm_scale) if selfcal else None
+    exact = ppm_scale == 1.0 and not selfcal                 # keep the validated path bit-identical
+    rows = lambda m: np.concatenate([np.arange(A.H)[zone_rows(z, A.H, NZ)] for z in range(NZ) if m[z]])
     track = np.zeros(k1 - k0); held = np.zeros(k1 - k0, dtype=bool)
     for k in range(k0, k1):
         tgt = X.focus_mm(subj[k])
         accum = 4 if (con[k] < 0.1 or fog[k] > 0.3 or bright[k] < 0.5) else 1
         v = A.render_views(tex, lens, tgt, con[k], bright[k], fog[k], dist[k], occ[k], occ_d[k],
                            rain[k], accum, nrng, rng)
-        meas = None if v is None else (*eyes(v[0], v[1]), dist[k])
+        meas = None if v is None else (*eyes(v[0], v[1]), dist[k], 0.5 * (v[0] + v[1]))
         arr = lb.push_pop((meas, lens))                       # lens at exposure travels with it
+        used = False
         if arr is None or arr[0] is None:
             last = brain.coast()
         else:
-            (dpx, cz, dk), lens_m = arr
+            (dpx, cz, dk, img), lens_m = arr
+            gain = 1.0 if exact else PPM / (kcal.k if selfcal else PPM * ppm_scale)   # true mm -> camera mm
             if mode == "afc":
                 d, c = combine_zones(dpx, cz); d_mm = d / PPM
                 if dk == "periodic":
                     d_mm = wrap(d_mm); c = max(c, 0.8)
-                last = brain.step(d_mm, c, 0.0, lens_m)
+                cs = cdaf_score(img)
+                last = brain.step(d_mm * gain if not exact else d_mm, c, cs, lens_m); used = True
             else:
                 d_mm = np.asarray(dpx) / PPM; cz = np.asarray(cz, dtype=float)
                 if dk == "periodic":
                     d_mm = wrap(d_mm); cz = np.maximum(cz, 0.8)
+                if not exact:
+                    d_mm = d_mm * gain
                 sel = tracker.select(lens_m - d_mm, cz, brain.predict())
                 if sel is None:
                     last = brain.coast(); held[k - k0] = True
                 else:
                     use = sel if np.any(sel) else np.ones(NZ, dtype=bool)
                     d, c = combine_zones(d_mm[use] * PPM, cz[use])
-                    last = brain.step(d / PPM, c, 0.0, lens_m)
+                    cs = cdaf_score(img[rows(use)])
+                    last = brain.step(d / PPM, c, cs, lens_m); used = True
+                    d_mm = np.array([d / PPM / gain])                       # back to true mm
+            if selfcal and used:                              # the disparity the sensor measured, px
+                d_cam_px = (d_mm if mode == "afc" else d_mm[0]) * PPM   # d_mm here is in true mm
+                kcal.update(lens_m, float(d_cam_px), c, float(brain._xa[1]) if brain._xa is not None else 1.0)
+                if klog is not None:
+                    klog.append(kcal.k)
         lens = motor.command(last); track[k - k0] = lens
     return (track, held) if log else track
 
