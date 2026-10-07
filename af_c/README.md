@@ -14,7 +14,8 @@ PDAF L/R views --af_phase--> per-zone (disparity, confidence)
 | `af_phase.[ch]` | **eyes**: per-zone phase correlation (radix-2 FFT, partial phase weighting, sub-pixel peak, PSR confidence) and the multi-zone combine | `pdaf_sim/phase_corr.py`, `pdaf_sim/zone_tracker.py::zone_estimates / combine_zones` |
 | `af_track.[ch]` | **AF-T tracker**: which zones are the subject, using depth only | `pdaf_sim/zone_tracker.py::ZoneTracker` |
 | `af_dual_gated.[ch]` | **brain**: calibrated, gated, two-timescale Kalman | `pdaf_sim/policy_dual.py::DualGated` |
-| `af_chain.[ch]` | the loop: AF-C combines every zone; AF-T uses the tracker and coasts while the subject is hidden | `scripts/run_aft_tracker.py::run_chain` |
+| `af_chain.[ch]` | the loop: AF-C combines every zone; AF-T uses the tracker and coasts while the subject is hidden; `AF_MODE_ROI` follows a detector's box with one PDAF window | `scripts/run_aft_tracker.py::run_chain`, `scripts/run_subject_classes.py::run` |
+| `af_roi.[ch]` | **subject-box AF**: the window an ISP measures for a box (`af_isp_fit`), and the ROI-led depth veto (`af_roi_gate`) | `pdaf_sim/roi.py` |
 
 Simulation research code: it is not derived from any manufacturer's firmware (see
 [DISCLAIMER.md](../DISCLAIMER.md)).
@@ -72,6 +73,21 @@ af_predict`). `af_chain_frame_zones` is for a sensor or ISP that does phase dete
 hardware and delivers per-zone disparity and confidence: it skips the software eyes and
 runs the rest of the chain unchanged (`make check` compares it with `af_chain_frame`).
 
+Subject-box AF (`AF_MODE_ROI`), when a detector supplies the subject's box:
+
+```c
+static af_chain ch; af_isp isp; af_win win;
+af_chain_init(&ch, AF_MODE_ROI, 512, 64, 1, 24, 1.7185f);
+af_isp_default(&isp);                                  /* placeholder rules: replace with the ISP's */
+win = af_isp_fit(&isp, box, 512, 64);                  /* the PDAF window to program for the box */
+cmd = af_chain_frame_roi(&ch, has, disp_px, conf, lens); /* that window's result, once per frame */
+cmd = af_chain_frame_box(&ch, L, R, win, lens);        /* ...or measure the window in software */
+```
+
+The window's measurement is used unless its depth disagrees with the track; then it is vetoed
+for at most 5 frames, after which the detector wins (`af_roi_gate`). `has = 0` (no box this
+frame) coasts the brain.
+
 - **C99.** No heap and no global state. Fixed work per frame.
 - **Memory:** `af_state` is 116 B, `af_track` 72 B, and `af_pc` 19.5 KB (FFT twiddles,
   window and scratch for up to 512-pixel-wide views).
@@ -106,7 +122,16 @@ then on the trajectory forks. AF-T has more such decisions, so it spreads more. 
 build is the control: it shows the same spread as the float build. That makes the spread
 forking, not single precision, and none of these differences is significant.
 
-**Also checked:** `make check` (44 pure-C checks, float and double) and ASan + UBSan builds,
+**`test_roi.py`: subject-box AF** (`af_roi.c`, `af_pc_window`, `AF_MODE_ROI`) against `pdaf_sim/roi.py` and the class study, with the ISP rules of `scripts/run_isp_window.py`:
+
+| check | result |
+|---|---|
+| window rules (`af_isp_fit`), 20,000 random boxes and rules | 0 differ |
+| window phase correlation, 2,824 windows from 4 clips | 99.9th pct \|diff\| 1.6e-6 px, 0 peak flips |
+| veto + brain, 7,176 recorded calls replayed | 1.6e-15 mm (double), 1.2e-6 mm (float) |
+| closed loop, float C chain vs Python, 4 classes × 5 seeds | within 0.24 in-focus points |
+
+**Also checked:** `make check` (54 pure-C checks, float and double) and ASan + UBSan builds,
 all clean.
 
 ## Cost and size
@@ -117,6 +142,8 @@ all clean.
 | tracker | ~0.65 µs per frame (including the benchmark's input generation) |
 | brain | ~34 ns per frame |
 | whole chain, AF-T | **~200 µs per frame = 1.2% of a 60 fps frame** |
+| subject box (`AF_MODE_ROI`): a 48 × 16 window measured in software, veto, brain | ~3.8 µs per frame (~4.7 µs if the window size changes every frame) |
+| subject box, from an ISP's window result: veto, brain | ~33 ns per frame |
 | ARM Cortex-M4F (FPv4-SP hard-float, -Os) | `.text` 7.1 KB for all four modules, hardware FPU; needs only `cosf sinf expf tanhf powf memcpy memset` |
 | ARM Cortex-A53 (-O2) | `.text` 26 KB (the loops are unrolled and vectorised) |
 
@@ -144,5 +171,9 @@ python -m ziglang cc -target aarch64-linux-musl -mcpu=cortex_a53 -O2 \
 - **Single-precision Kalman covariance can lose positive-definiteness** after a re-init with
   a wide prior. The brain has a guard. It fired 0 times in testing (counted with
   `-DAF_COUNT_PD_FIXES`).
+- **A closed-loop comparison cannot check fixed-point logic exactly.** With the ISP's 1/16 px output, a 1e-12 difference
+  crossed a rounding step and forked 2 of 8 clips. `test_roi.py` replays recorded calls open-loop instead.
+- **Python's `estimate_disparity` returns a meaningless value on a window too narrow for its ±max_disp search.**
+  `af_pc_window` refuses it, and the ISP's minimum window width keeps every window valid.
 - **`-Werror` caught `af_median(n = 0)` reading uninitialised memory.** No caller passes 0,
   but the function now defends itself.

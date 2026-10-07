@@ -899,3 +899,48 @@ In focus on the subject (whole clip, %):
 - **Not done:**
   - Find why Tracker2D loses the person.
   - Put a box-fitted PDAF window in the C chain.
+
+## Subject-box AF in C, and the ISP's window rules
+
+**C port.**
+- af_roi.[ch]:
+  - af_isp_fit: an ISP's window rules.
+  - af_roi_gate: the ROI-led depth veto.
+- af_pc_window: phase correlation on any window.
+- af_chain's AF_MODE_ROI:
+  - af_chain_frame_roi takes one window's result as an ISP delivers it.
+  - af_chain_frame_box measures the window from the views first.
+- pdaf_sim/roi.py is the Python reference. The class study now uses it; its numbers are
+  unchanged (5 clips identical to the previous commit).
+
+**Checks.** make check: 54 pure-C checks (float and double), ASan + UBSan, clang -Werror.
+af_c/test_roi.py:
+- window rules: 0 of 20,000 random boxes differ.
+- window phase correlation: 2,824 windows, 99.9th pct |diff| 1.6e-6 px, no peak flips.
+- veto + brain: 7,176 recorded calls replayed, 1.6e-15 mm (double), 1.2e-6 mm (float).
+- closed loop, float C vs Python: within 0.24 in-focus points for every class.
+- **The first version of this test failed, and the C was not at fault.** It compared veto +
+  brain in a closed loop and failed on 2 of 8 clips. With fixed-point output, a 1e-12
+  difference crossed a 1/16 px rounding step and the trajectory forked; the other 6 clips
+  agreed to 1e-14. Replaying recorded calls open-loop isolates the logic.
+
+**Cost** (x86-64, -O2, per frame):
+- 48 x 16 window + veto + brain: 3.8 us (4.7 us if the window width changes every frame).
+- From an ISP's window result: 33 ns.
+- For comparison, the 14-zone software eyes: 212 us.
+
+**The ISP's window rules** (scripts/run_isp_window.py, 20 seeds). Generic placeholders:
+>= 48 x 8 px, 8 px grid, +1 frame, 1/16 px and 8-bit output.
+- Cost against window = box: person -0.7, animal -4.3, bird against sky -3.0, bird in
+  clutter -56.9 (82.0 -> 25.1%).
+- Bird in clutter, one rule changed at a time, paired:
+  - 1 px grid +48.5; 16 px grid -14.7
+  - minimum width 32 px +10.2; 64 px -3.4
+  - window effective at once +5.5; after 2 frames +1.9 (within noise)
+  - floating-point output +2.8
+- Why: the minimum size and the outward snap wrap the 10 x 32 px bird in background (a 48-56 x
+  16 px window). The estimator averages the window's rows, so background rows dilute the
+  bird's columns.
+- Python's estimate_disparity returns a meaningless value on a window too narrow for its
+  +-max_disp search, while af_pc_window refuses that window. The ISP's minimum width keeps
+  every window valid.

@@ -485,6 +485,48 @@ In focus on the subject, whole clip, 20 seeds:
   3 points for a person, 9 for an animal, 5 for a bird against sky, 17 for a bird against
   clutter.
 
+## Subject-box AF in C, and the ISP's window rules
+
+The class study's best pipeline now runs in C: a class detector with one PDAF window fitted to
+its box (`af_c/af_roi.[ch]`, and `af_chain` mode `AF_MODE_ROI`). In a camera, the ISP's
+phase-detection block would measure that window, and such blocks have rules of their own.
+`scripts/run_isp_window.py` applies generic placeholder rules to the window:
+- a minimum size of 48 × 8 px
+- edges on an 8 px grid
+- one frame before a newly programmed window takes effect
+- fixed-point output: 1/16 px disparity, 8-bit confidence
+
+![The ISP's window rules](out/isp_window.png)
+
+| in focus on the subject (20 seeds) | person | animal | bird, busy background | bird, open sky |
+|---|---|---|---|---|
+| window = the detector's box | 96.4% | 90.8% | 82.0% | 93.3% |
+| baseline ISP rules | 95.8% | 86.5% | **25.1%** | 90.3% |
+
+- **For people and animals the ISP's rules hardly matter:** −0.7 and −4.3 points.
+- **For a small bird in clutter they decide everything.** The minimum size and the outward snap
+  to the grid wrap a 10 × 32 px bird in background: its window becomes 48–56 px wide and
+  usually 16 rows tall. The estimator averages the window's rows, so background rows dilute
+  the bird's columns, and the background wins the phase correlation again, as it did with
+  fixed cells.
+- **One rule changed at a time** (paired, 20 seeds):
+  - 1 px grid: back to 73.6%
+  - 16 px grid: down to 10.4%
+  - 32 px minimum width: +10.2 points
+  - window delay and fixed-point output: only a few points
+- **What bird AF needs from an ISP:** window edges on a grid much finer than the bird, and a
+  minimum size no larger than the bird. If its windows are coarser, measure the bird's window
+  in software from the PDAF pixels: in C that costs 3.8 µs per frame.
+
+**The C port matches the Python reference** (`af_c/test_roi.py`):
+- the window rules exactly, on 20,000 random boxes
+- the window's phase correlation to 1.6e-6 px, on 2,824 windows
+- every veto and brain call of 8 clips, to 1.6e-15 mm (double) and 1.2e-6 mm (float)
+- in closed loop, the float C chain is within 0.24 in-focus points of Python for every class
+
+Cost per frame on one x86-64 core: 3.8 µs to measure a 48 × 16 window, veto and steer; 33 ns
+when the ISP delivers the window's result.
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -499,6 +541,7 @@ In focus on the subject, whole clip, 20 seeds:
   two-timescale Kalman AF-C policy (Python reference model for `af_c/`)
 - `pdaf_sim/zone_tracker.py` — **ZoneTracker**: depth-only AF-T subject tracker
   (subject / occluder zone association), plus per-zone estimates and the multi-zone combine
+- `pdaf_sim/roi.py` — subject-box AF: the ISP's window rules and the ROI-led depth veto
 - `pdaf_sim/calib.py` — online self-calibration of the PDAF gain K from the lens's own moves
 - `pdaf_sim/policy2d.py` — V4: 2-D zone grid + subject bounding-box
   Kalman tracker (subject persistence across occlusion)
@@ -563,6 +606,7 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 - `scripts/run_speed_cap_chain.py` — lens speed cap 4000 vs 10000 steps/s with the current chain.
 - `scripts/run_subject_classes.py` — **AF-T by subject class** (person, animal, bird): detector
   quality, fixed AF cells vs a PDAF window fitted to the subject.
+- `scripts/run_isp_window.py` — what an ISP's PDAF window rules cost, per class and one rule at a time.
 - `af_c/` — **the whole AF chain in C99** (eyes, tracker, brain, chain): no heap,
   a standalone C demo (`af_demo`), pure-C unit tests (`make check`), stage-by-stage
   equivalence tests against the Python references, a closed-loop check, a benchmark,
@@ -592,6 +636,7 @@ python3 af_c/test_equiv.py             # every C stage vs its Python reference
 python scripts/run_2d_identity.py      # 2-D grid + identity (~5 min)
 python scripts/run_realism_gaps.py     # CDAF verification + gain calibration (~11 min)
 python scripts/run_subject_classes.py  # people, animals, birds (~9 min)
+python scripts/run_isp_window.py       # the ISP's window rules (~4 min)
 ```
 
 ## Case study constants

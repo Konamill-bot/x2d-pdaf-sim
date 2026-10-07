@@ -72,7 +72,7 @@ def figure(res, n):
         ax[0].bar_label(b, labels=[f"{x:.0f}" for x in m], padding=4, fontsize=9, color=INK)
     ax[0].set_xticks(xg); ax[0].set_xticklabels(S.LABELS, fontsize=9); ax[0].set_ylim(0, 112)
     ax[0].set_title("class detector → one PDAF window fitted to its box:\nin focus on the subject (%)", fontsize=10.5)
-    ax[0].legend(frameon=False, fontsize=9, loc="lower left")
+    ax[0].legend(frameon=False, fontsize=9, ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.16))
     yv = np.arange(len(VARIANTS))[::-1]
     m = [np.mean(res[(BIRD, v)]) for v in range(len(VARIANTS))]
     se = [np.std(res[(BIRD, v)]) / np.sqrt(n) for v in range(len(VARIANTS))]
@@ -83,7 +83,7 @@ def figure(res, n):
     ax[1].set_title("bird, busy background: one ISP rule changed at a time (in focus, %)", fontsize=10.5)
     fig.suptitle(f"The ISP's window rules: what they cost ({n} seeds; generic placeholder values)",
                  fontsize=12.5, color=INK)
-    fig.tight_layout(rect=[0, 0, 1, 0.94]); fig.savefig("out/isp_window.png", dpi=120)
+    fig.tight_layout(rect=[0, 0.05, 1, 0.94]); fig.savefig("out/isp_window.png", dpi=120)
 
 
 def main():
