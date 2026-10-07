@@ -798,3 +798,69 @@ Files: pdaf_sim/zone_tracker.py (new), pdaf_sim/policy_dual.py (predict), script
 run_ablation_4phase.py (render_views split, identical results), scripts/run_aft_tracker.py
 (new), out/aft_tracker.png (new), af_c/ (af_phase, af_track, af_chain, af_util, af_demo,
 test_c, afc.py bridge; equivalence, closed-loop and bench rewritten).
+
+## Four realism gaps: 2-D grid, identity, CDAF verification, gain calibration
+
+An outside review listed four things the chain still simplifies. All four were tested.
+
+**2-D grid + identity** (scripts/run_2d_identity.py, 20 seeds)
+- **Scene.** A small subject (1 x 2 cells of a 4 x 8 grid) in front of a far background,
+  and a distractor crossing it twice at exactly its depth.
+- **Results:**
+  - Whole-area AF-C and 1-D bands: below 1% on the subject (the background wins every band).
+  - 2-D depth only: 75.0 ± 6.6%. After a crossing, its lens is on the distractor 23% of the
+    time.
+  - 2-D + simulated visual ROI: 98.7 ± 0.5%, 5.6% on the distractor. The ROI is 30 Hz,
+    3 frames late, 10% missed, 10% jittered, and switches identity in 30% of crossings.
+  - Ideal ROI: 100%.
+- **Fusion rule.** Depth overrules the ROI when the ROI's cells are at the wrong depth while
+  the subject is still seen near its prediction.
+- **Bugs found in the smoke tests, all in the new script and fixed:**
+  - Acquisition took background cells, so every 2-D config scored 0%. It now starts from
+    the cells around the user's tap point, or inside the ROI.
+  - On a cell boundary the tap took in a background cell. The tap is now the subject's
+    centroid.
+  - During pipeline warm-up, coast() with no track returns 0.0, so the lens drove toward
+    infinity for 3 frames and lost a small subject. The script now holds the lens. The
+    4-phase chain has the same quirk for its first 3 frames; it is left as is so validated
+    numbers stay identical.
+- The ROI is a generic simulated detector plus multi-object tracker. Nothing in it comes
+  from any product.
+
+**CDAF verification: negative** (DualGated(cdaf_verify=True), off by default; seeds 30-39)
+- After each re-acquisition, contrast below 0.6 x the pre-jump peak starts a contrast
+  hill-climb.
+- Periodic-texture frames: AF-C +12.9 ± 7.3. Overall: AF-C −2.3 ± 1.7, AF-T −2.6 ± 0.4.
+- Why it loses: P1 −8.8, because the check fires before long throws finish; and P3 −7.3 for
+  AF-C, because a switch onto an occluder compares a different object's contrast.
+- Next design, not built: gate the check on lens arrival, and test for a local contrast
+  peak (probe ±δ) instead of comparing with a reference.
+- Found on the way: X2DPlus.step() (scripts/run_x2d_plus.py) takes the contrast score and
+  never uses it, so every X2D+ result is PDAF only.
+
+**PDAF gain calibration** (scripts/run_realism_gaps.py, pdaf_sim/calib.py; AF-C P1+P2, seeds 30-35)
+- **Table error tolerance.** The loop absorbs ±20%. At −40% (gain under-estimated, every
+  correction over-driven) P1 collapses to 17.1%.
+- **KSelfCal** (least-squares slope of disparity against the lens's own moves while the
+  subject is still) rescues −40% to 92.9%, with K within 1%. Elsewhere it stays within a
+  point of the table.
+- **Bug in the first version.** It regressed on a disparity already rescaled by its own
+  estimate, so it learned nothing and ended 47% off. Fixed. The run's preflight check
+  confirms the default chain is still bit-identical to the simulator.
+- **Remaining issue.** By the end of P2, where few still-subject moves happen, the estimate
+  is between 26% low and 19% high. It needs smoothing before production.
+
+**Hardware input.** af_chain_frame_zones() takes per-zone disparity and confidence from a
+hardware PDAF block, skipping the software eyes. A pure-C test checks it against
+af_chain_frame (44 checks).
+
+**Lens speed cap 4000 vs 10000** with the current chain (scripts/run_speed_cap_chain.py, seeds 30-49)
+- Overall: AF-C +1.7 ± 0.5, AF-T +1.5 ± 0.6.
+- Time to focus after a 3–9 mm jump: median 333 → 183 ms, p90 433 → 233 ms.
+- AF-C switching onto an occluder: median 133 → 108 ms, p90 367 → 192 ms.
+
+Files: scripts/run_2d_identity.py, scripts/run_realism_gaps.py, scripts/run_speed_cap_chain.py,
+pdaf_sim/calib.py (new); pdaf_sim/policy_dual.py (opt-in CDAF verify);
+scripts/run_aft_tracker.py (contrast score, gain error and self-cal options; default path
+unchanged); af_c/af_chain.[ch] + test_c.c (af_chain_frame_zones); out/2d_identity.png,
+out/realism_gaps.png.

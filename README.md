@@ -354,56 +354,61 @@ cd af_c && make && ./af_demo && make check
 The chain above still simplifies four things a real camera faces. Each was tested here; one
 result is negative.
 
-**1 + 2. A 2-D AF grid, and subject identity** ()
+**1 + 2. A 2-D AF grid, and subject identity** (`scripts/run_2d_identity.py`)
 
 ![2-D grid and identity](out/2d_identity.png)
 
 A small subject (1 × 2 cells of a 4 × 8 grid) wanders in 2-D and in depth in front of a far
 background. Twice per clip, a distractor crosses it *at exactly its depth*. Results over 20
-seeds, with parameters set a priori:
+seeds:
 
 | | in focus on the subject | 0.5–2.5 s after a crossing | lens on the distractor after a crossing |
 |---|---|---|---|
-| AF-C, whole area | 0.3% | 0.0% | — |
-| 1-D bands + ZoneTracker | 0.5% | 0.3% | — |
+| AF-C, whole area | 0.3% | 0.0% | 0.0% |
+| 1-D bands + ZoneTracker | 0.5% | 0.3% | 0.0% |
 | 2-D cells, depth only | 75.0% | 62.0% | 23.2% |
 | **2-D + simulated visual ROI** | **98.7%** | **97.7%** | **5.6%** |
 | 2-D + ideal ROI | 100% | 100% | 0% |
 
 - **Full-width bands can't hold a small subject.** The subject is a minority of every band,
-  so the band's correlation peak is the background's. 2-D cells are the precondition for
-  tracking anything small.
+  so each band's correlation peak is the background's, and both whole-area AF-C and the 1-D
+  tracker sit on the background. 2-D cells are the precondition for tracking anything small.
 - **Depth alone can't tell two objects at the same depth apart.** After a crossing, the
-  depth-only tracker ends up on the distractor 23% of the time.
-- **The simulated ROI is deliberately imperfect:** 30 Hz, 3 frames late, 10% misses,
-  one-cell jitter, and a 30% chance per crossing of switching identity onto the distractor.
+  depth-only tracker's lens is on the distractor 23% of the time.
+- **The simulated ROI is deliberately imperfect.** It updates at 30 Hz, arrives 3 frames
+  late, misses 10% of detections and jitters another 10%. In 30% of crossings it switches
+  identity onto the distractor, until half a second after the two separate.
 - **Depth checks the ROI.** When the ROI's cells are at the wrong depth while the subject is
-  still seen near its predicted position, the ROI is overruled. That catches most identity
-  switches: 5.6% of frames on the distractor, against 23.2% for depth only.
+  still seen near its predicted position, the ROI is overruled. An ROI that keeps
+  disagreeing for 6 frames, with no subject seen elsewhere, is accepted. That catches most
+  identity switches: after a crossing the lens is on the distractor 5.6% of the time,
+  against 23.2% for depth only.
 - **The architecture this supports:** the visual tracker says *where* the subject is, and the
   PDAF depth engine says *whether that is still the subject* and carries it between
-  detections. The ROI here is a generic simulated detector plus multi-object tracker. Python
-  only for now.
+  detections. The ROI here is a generic simulated detector plus multi-object tracker,
+  Python only for now.
 
-**3. Contrast (CDAF) verification of new locks: a negative result** (, off by default)
+**3. Contrast (CDAF) verification of new locks: a negative result** (`DualGated(cdaf_verify=True)`, off by default)
 
-![realism gaps](out/realism_gaps.png)
+![CDAF verification and gain calibration](out/realism_gaps.png)
 
 After every re-acquisition, the contrast is compared with the contrast held before the
-jump, and a drop starts a contrast hill-climb.
-- On the harsh phase's periodic-texture frames it helps: AF-C +12.9 ± 7.3.
-- Overall it costs more than it gains: AF-C −2.3, AF-T −2.6 (10 seeds). It checks contrast
-  before the lens has finished long throws (P1 −8.8), and it compares different objects, such
-  as an occluder's texture against the subject's (P3 −7.3).
+jump. A drop below 60% of it starts a contrast hill-climb.
+- On the harsh phase's periodic-texture frames it helps: AF-C +12.9 ± 7.3 points.
+- Overall it costs more than it gains: AF-C −2.3 ± 1.7, AF-T −2.6 ± 0.4 (10 seeds). It
+  checks contrast before the lens has finished long throws (P1 −8.8), and it compares
+  different objects, such as an occluder's texture against the subject's (P3 −7.3).
 
-The fix is known but not built: check only once the lens has arrived, and test for a local
+The likely fix, not built yet: check only once the lens has arrived, and test for a local
 contrast peak (probe ±δ) instead of comparing against a reference taken on another object.
+Note that `X2DPlus.step()` receives the contrast score and ignores it, so every X2D+ result
+in this repo is PDAF only.
 
-**4. PDAF gain calibration** (, )
+**4. PDAF gain calibration** (`scripts/run_realism_gaps.py`, `pdaf_sim/calib.py`)
 
-The gain K that converts disparity into defocus comes from a table. On a real body it moves
-with lens, aperture, focus position, image height and temperature. P1 in-focus % with the
-table deliberately wrong (AF-C, random teleports, 6 seeds):
+The gain K that converts disparity into defocus comes from a calibration table. On a real
+body it varies with the lens, aperture, focus position and image height. P1 in-focus % with
+the table deliberately wrong (AF-C, random teleports, 6 seeds):
 
 | table error | −40% | −20% | 0 | +20% | +40% |
 |---|---|---|---|---|---|
@@ -413,21 +418,22 @@ table deliberately wrong (AF-C, random teleports, 6 seeds):
 - **The closed loop tolerates ±20%,** because every step re-measures.
 - **An under-estimated gain is dangerous.** It over-drives every correction, and at −40% the
   loop breaks down.
-- **Self-calibration rescues it** to 92.9%, with K within 1% of the true value. It uses the
-  lens's own moves: with the subject still, moving the lens by dL changes the disparity by
-  K·dL.
-- **The estimate is still noisy** where few still-subject moves happen (end-of-run error
-  −26% to +19%). That is harmless at these magnitudes but needs smoothing before production.
+- **Self-calibration rescues it** to 92.9%, with K within 1% of the true value. Elsewhere it
+  stays within a point of the table. It uses the lens's own moves: with the subject still,
+  moving the lens by ΔL changes the disparity by K·ΔL.
+- **The estimate is still noisy** where few still-subject moves happen. By the end of the run
+  it is 26% low to 19% high in some cases, which the loop survived here. It needs smoothing
+  before production.
 
-On the input side,  now also accepts per-zone disparity and confidence straight from a
-hardware PDAF block (), which is what most real sensors deliver.
+On the input side, `af_c` now also accepts per-zone disparity and confidence straight from a
+hardware PDAF block (`af_chain_frame_zones`). That is how many sensors and ISPs deliver PDAF
+results.
 
-**Lens speed cap with the new chain** (, 20 seeds). Going from
-4000 to 10000 steps/s adds +1.7 overall for AF-C and +1.5 for AF-T. Its value is in long
-throws:
+**Lens speed cap with the new chain** (`scripts/run_speed_cap_chain.py`, 20 seeds). Going from
+4000 to 10000 steps/s adds +1.7 ± 0.5 points overall for AF-C and +1.5 ± 0.6 for AF-T. The
+gain is in long throws:
 - After a 3–9 mm jump, the median time to focus drops from 333 ms to 183 ms (p90 433 → 233 ms).
-- AF-C switches onto a near occluder faster (p90 367 → 192 ms).
-- Small, continuous motion is unchanged.
+- AF-C switches onto a near occluder faster (median 133 → 108 ms, p90 367 → 192 ms).
 
 ## What's in this repo
 
@@ -443,6 +449,7 @@ throws:
   two-timescale Kalman AF-C policy (Python reference model for `af_c/`)
 - `pdaf_sim/zone_tracker.py` — **ZoneTracker**: depth-only AF-T subject tracker
   (subject / occluder zone association), plus per-zone estimates and the multi-zone combine
+- `pdaf_sim/calib.py` — online self-calibration of the PDAF gain K from the lens's own moves
 - `pdaf_sim/policy2d.py` — V4: 2-D zone grid + subject bounding-box
   Kalman tracker (subject persistence across occlusion)
 - `pdaf_sim/sensor_imx461.py` — IMX461 geometry: 294-zone grid,
@@ -499,6 +506,11 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
   comparison on 20 held-out seeds.
 - `scripts/run_aft_tracker.py` — **AF-T with the real tracker vs the ideal one**,
   through a per-zone AF chain whose stages are swappable (Python or C).
+- `scripts/run_2d_identity.py` — **2-D AF grid + subject identity**: small subject, same-depth
+  distractor, depth-only vs simulated visual ROI vs ideal ROI.
+- `scripts/run_realism_gaps.py` — **CDAF verification** (negative result) and **PDAF gain
+  calibration** errors with online self-calibration.
+- `scripts/run_speed_cap_chain.py` — lens speed cap 4000 vs 10000 steps/s with the current chain.
 - `af_c/` — **the whole AF chain in C99** (eyes, tracker, brain, chain): no heap,
   a standalone C demo (`af_demo`), pure-C unit tests (`make check`), stage-by-stage
   equivalence tests against the Python references, a closed-loop check, a benchmark,
@@ -525,6 +537,8 @@ python scripts/run_dual_gated.py       # DualGated vs X2D+ (~15 min; --quick ~3 
 python scripts/run_aft_tracker.py      # AF-T real vs ideal tracker (~15 min; --quick ~3 min)
 cd af_c && make && ./af_demo && make check   # the AF chain in C: demo + unit tests
 python3 af_c/test_equiv.py             # every C stage vs its Python reference
+python scripts/run_2d_identity.py      # 2-D grid + identity (~5 min)
+python scripts/run_realism_gaps.py     # CDAF verification + gain calibration (~11 min)
 ```
 
 ## Case study constants

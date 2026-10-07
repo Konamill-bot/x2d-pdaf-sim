@@ -64,10 +64,13 @@ static af_chain ch;                                    /* ~20 KB, no heap */
 af_chain_init(&ch, AF_MODE_T, 256, 64, 14, 48, 1.7185f); /* width, height, zones, max disparity px, px per mm */
 cmd = af_chain_frame(&ch, L, R, lens_at_exposure);     /* each frame with PDAF views */
 cmd = af_chain_coast(&ch);                             /* each frame without */
+cmd = af_chain_frame_zones(&ch, disp_px, conf, lens);  /* or: per-zone results from a PDAF block */
 ```
 
 Each stage is also usable on its own (`af_pc_*`, `af_track_*`, `af_step / af_coast /
-af_predict`).
+af_predict`). `af_chain_frame_zones` is for a sensor or ISP that does phase detection in
+hardware and delivers per-zone disparity and confidence: it skips the software eyes and
+runs the rest of the chain unchanged (`make check` compares it with `af_chain_frame`).
 
 - **C99.** No heap and no global state. Fixed work per frame.
 - **Memory:** `af_state` is 116 B, `af_track` 72 B, and `af_pc` 19.5 KB (FFT twiddles,
@@ -103,7 +106,7 @@ then on the trajectory forks. AF-T has more such decisions, so it spreads more. 
 build is the control: it shows the same spread as the float build. That makes the spread
 forking, not single precision, and none of these differences is significant.
 
-**Also checked:** `make check` (43 pure-C checks, float and double) and ASan + UBSan builds,
+**Also checked:** `make check` (44 pure-C checks, float and double) and ASan + UBSan builds,
 all clean.
 
 ## Cost and size
