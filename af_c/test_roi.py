@@ -12,8 +12,9 @@ baseline ISP rules of scripts/run_isp_window.py.
 
   1. ISP window : af_isp_fit vs pdaf_sim.roi.IspWindow.fit on 20,000 random boxes and rules
   2. eyes       : af_pc_window vs estimate_disparity on every ISP window of 4 recorded clips
-  3. veto+brain : the closed loop with Python eyes and the C chain (double build) vs Python,
-                  every lens command of 8 clips
+  3. veto+brain : every af_chain_frame_roi call of 8 clips, recorded from the Python loop and
+                  replayed into C (open loop: in a closed loop with fixed-point ISP output, a
+                  1e-12 difference can cross a 1/16 px rounding step and fork the trajectory)
   4. closed loop: C eyes + C chain (float build) vs Python, in-focus %, 4 classes x 5 seeds
 
 Run (after make):  python3 af_c/test_roi.py
@@ -24,7 +25,8 @@ sys.path.insert(0, HERE); sys.path.insert(0, ROOT)
 import numpy as np
 spec = importlib.util.spec_from_file_location("run_subject_classes", os.path.join(ROOT, "scripts", "run_subject_classes.py"))
 S = importlib.util.module_from_spec(spec); sys.modules["run_subject_classes"] = S; spec.loader.exec_module(S)
-from pdaf_sim.roi import IspWindow
+from pdaf_sim.policy_dual import DualGated
+from pdaf_sim.roi import IspWindow, RoiGate
 from afc import CWindowEyes, CChain, c_isp_fit
 ISP = dict(win=IspWindow(), lat=1, quant=True)
 FAILED = []
@@ -68,16 +70,35 @@ def test_eyes():
               f"{lab} window estimates match")
 
 
+class PyRoiChain:
+    """The Python side of af_chain_frame_roi (RoiGate + DualGated), recording every call."""
+    def __init__(self):
+        self.brain = DualGated(); self.gate = RoiGate(); self.calls = []
+    def frame_roi(self, has, d, c, lens):
+        pred = self.brain.predict()
+        if has and self.gate.check(lens - d / S.PPM, c, pred):
+            out = self.brain.step(d / S.PPM, c, 0.0, lens)
+        else:
+            out = self.brain.coast() if pred is not None else lens
+        self.calls.append((has, d, c, lens, out))
+        return out
+
+
 def test_chain():
-    print("3. veto + brain (af_chain AF_MODE_ROI, double build) in the closed loop, Python eyes")
-    worst = 0.0; n = 0
+    print("3. veto + brain (af_chain_frame_roi): every call of 8 clips, recorded and replayed into C")
+    same = True; worst = {True: 0.0, False: 0.0}; n = 0
     for cls in S.CLASSES:
         for seed in (0, 1):
-            py = S.run(seed, cls, 4, isp=ISP)
-            ch = CChain("roi", S.W, S.H, 1, S.MD_CELL, S.PPM, double=True)
-            c = S.run(seed, cls, 4, isp=ISP, impl=dict(chain=ch))
-            worst = max(worst, float(np.max(np.abs(py - c)))); n += len(py)
-    check(worst < 1e-9, f"{n} lens commands, max |diff| {worst:.1e} mm (< 1e-9)")
+            rec = PyRoiChain()
+            same &= bool(np.array_equal(S.run(seed, cls, 4, isp=ISP, impl=dict(chain=rec)), S.run(seed, cls, 4, isp=ISP)))
+            n += len(rec.calls)
+            for double in (True, False):
+                ch = CChain("roi", S.W, S.H, 1, S.MD_CELL, S.PPM, double=double)
+                for has, d, c, lens, out in rec.calls:
+                    worst[double] = max(worst[double], abs(ch.frame_roi(has, d, c, lens) - out))
+    check(same, "the recorder reproduces the study's Python loop exactly")
+    check(worst[True] < 1e-9, f"double build: {n} calls, max |diff| {worst[True]:.1e} mm (< 1e-9)")
+    check(worst[False] < 1e-3, f"float build:  {n} calls, max |diff| {worst[False]:.1e} mm (< 1e-3)")
 
 
 def test_closed_loop():
