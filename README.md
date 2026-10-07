@@ -435,6 +435,56 @@ gain is in long throws:
 - After a 3–9 mm jump, the median time to focus drops from 333 ms to 183 ms (p90 433 → 233 ms).
 - AF-C switches onto a near occluder faster (median 133 → 108 ms, p90 367 → 192 ms).
 
+## Subject classes: people, animals, birds
+
+A real camera's detector is trained on classes, and the classes differ in three ways that
+matter to AF: size against the AF cell, motion, and how well they are detected
+(`scripts/run_subject_classes.py`).
+
+![AF-T by subject class](out/subject_classes.png)
+
+- **Person:** 2 × 2 cells, slow drift, and the best detector (5% missed, 5% jittered, 20%
+  identity switches at a crossing).
+- **Animal:** 1.5 × 1.5 cells, faster and turning; 15% / 15% / 35%.
+- **Bird:** about half a cell each way, darting; 30% / 25% / 50%. Two birds of one species
+  look alike, so a switch is close to a coin flip. The bird is run against a busy background
+  and against open sky.
+
+Every class stays in the same 1.5–4 m depth band, and a same-class distractor crosses it
+twice at its depth. These parameters are assumptions set a priori, not measurements of any
+detector: read the pattern, not the decimals.
+
+In focus on the subject, whole clip, 20 seeds:
+
+| | person | animal | bird, busy background | bird, open sky |
+|---|---|---|---|---|
+| depth only (no detector) | 77.5% | 38.5% | 1.0% | 13.4% |
+| class detector → fixed cells, depth leads (Tracker2D) | 78.6% | 74.9% | 3.9% | 61.9% |
+| class detector → fixed cells, ROI leads | 96.2% | 87.1% | 5.3% | 75.1% |
+| **class detector → PDAF window fitted to its box, ROI leads** | **96.4%** | **90.8%** | **82.0%** | **93.3%** |
+| ideal ROI → fixed cells | 98.7% | 96.2% | 6.0% | 78.6% |
+| ideal ROI → PDAF window fitted to the subject | 99.7% | 99.9% | 98.6% | 98.6% |
+
+- **Without a detector, small and fast subjects are lost.** That is what happens to anything
+  outside the detector's classes: 77.5% for a person, 38.5% for an animal, 1–13% for a bird.
+- **For a small bird, the bottleneck is the AF cell, not the detector.** Against a busy
+  background, even a perfect detector on fixed cells keeps the bird in focus 6% of the time.
+  The bird fills less than a third of any cell it touches, so each cell's phase signal is the
+  background's: the familiar "focus on the branch behind the bird". A PDAF window cut to the
+  bird's box fixes it: 98.6% with a perfect box, 82.0% with the simulated detector. Against
+  open sky nothing competes, and fixed cells reach 78.6%.
+- **For people, fixed cells are enough, but the fusion rule matters.** When the ROI leads
+  (depth may veto it for up to 6 frames), the person is in focus 96.2% of the time on fixed
+  cells. With the rule from the 2-D study above, where depth leads and vetoes the ROI
+  (Tracker2D), the same detector on the same cells gets 78.6%. The mechanism was not
+  isolated. Tracker2D's parameters were set for that study's smaller, cell-aligned subject.
+- **Letting the ROI lead inherits its identity switches.** After a crossing, the animal's
+  lens is on the other animal in 20–28% of frames when the ROI leads, against 0.1% with
+  depth only. Depth only, though, keeps the animal in focus just 38.5% of the time.
+- **What the detector's errors cost** (fitted window, class detector against a perfect box):
+  3 points for a person, 9 for an animal, 5 for a bird against sky, 17 for a bird against
+  clutter.
+
 ## What's in this repo
 
 - `pdaf_sim/psf.py` — circle-of-confusion radius, half-disk sub-aperture
@@ -511,6 +561,8 @@ Extended AF-C algorithm studies (simulation-only — see `DISCLAIMER.md`):
 - `scripts/run_realism_gaps.py` — **CDAF verification** (negative result) and **PDAF gain
   calibration** errors with online self-calibration.
 - `scripts/run_speed_cap_chain.py` — lens speed cap 4000 vs 10000 steps/s with the current chain.
+- `scripts/run_subject_classes.py` — **AF-T by subject class** (person, animal, bird): detector
+  quality, fixed AF cells vs a PDAF window fitted to the subject.
 - `af_c/` — **the whole AF chain in C99** (eyes, tracker, brain, chain): no heap,
   a standalone C demo (`af_demo`), pure-C unit tests (`make check`), stage-by-stage
   equivalence tests against the Python references, a closed-loop check, a benchmark,
@@ -539,6 +591,7 @@ cd af_c && make && ./af_demo && make check   # the AF chain in C: demo + unit te
 python3 af_c/test_equiv.py             # every C stage vs its Python reference
 python scripts/run_2d_identity.py      # 2-D grid + identity (~5 min)
 python scripts/run_realism_gaps.py     # CDAF verification + gain calibration (~11 min)
+python scripts/run_subject_classes.py  # people, animals, birds (~9 min)
 ```
 
 ## Case study constants

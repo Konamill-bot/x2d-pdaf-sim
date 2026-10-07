@@ -41,7 +41,7 @@ Configurations, per class:
 
 The class parameters (PROFILES) are ASSUMPTIONS set a priori from the points above, not
 measurements of any camera or detector: read the ordering and the reasons, not the decimals.
-Run:  python scripts/run_subject_classes.py           ->  out/subject_classes.png   (~12 min)
+Run:  python scripts/run_subject_classes.py           ->  out/subject_classes.png   (~9 min on 4 cores)
       python scripts/run_subject_classes.py --quick   (1 seed, no figure)
 """
 from __future__ import annotations

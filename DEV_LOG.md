@@ -864,3 +864,38 @@ pdaf_sim/calib.py (new); pdaf_sim/policy_dual.py (opt-in CDAF verify);
 scripts/run_aft_tracker.py (contrast score, gain error and self-cal options; default path
 unchanged); af_c/af_chain.[ch] + test_c.c (af_chain_frame_zones); out/2d_identity.png,
 out/realism_gaps.png.
+
+## Subject classes: people, animals, birds
+
+scripts/run_subject_classes.py, 20 seeds. The classes differ in size against the AF cell,
+motion, and detector quality. Detector quality is assumed a priori, as missed / jittered /
+switched: person 5/5/20%, animal 15/15/35%, bird 30/25/50%. The bird is run against a busy
+background and against open sky. Positions are continuous and the views are composited per
+pixel, so objects straddle cells.
+
+In focus on the subject (whole clip, %):
+
+| | person | animal | bird, busy | bird, sky |
+|---|---|---|---|---|
+| depth only | 77.5 | 38.5 | 1.0 | 13.4 |
+| detector, fixed cells, depth leads (Tracker2D) | 78.6 | 74.9 | 3.9 | 61.9 |
+| detector, fixed cells, ROI leads | 96.2 | 87.1 | 5.3 | 75.1 |
+| detector, fitted window, ROI leads | 96.4 | 90.8 | 82.0 | 93.3 |
+| ideal, fixed cells | 98.7 | 96.2 | 6.0 | 78.6 |
+| ideal, fitted window | 99.7 | 99.9 | 98.6 | 98.6 |
+
+- **Birds: the AF cell is the bottleneck.** The bird covers at most 31% of a cell, so a busy
+  background wins every cell's correlation peak, even with a perfect ROI (6.0%). With a PDAF
+  window cut to the bird's box: 98.6% ideal, 82.0% with the simulated detector.
+- **People: the fusion rule is the bottleneck.** With the same detector on the same cells,
+  ROI-leads gets 96.2% and depth-leads (Tracker2D) 78.6%. This was not diagnosed further.
+- **Identity switches.** When the ROI leads, the animal's lens is on the other animal in
+  20-28% of post-crossing frames (depth only: 0.1%).
+- **How the study changed.** In the first 20-seed run, the detector on fixed cells used only
+  Tracker2D's rule, and the fitted window used only the ROI-leads rule. The two detector
+  configurations therefore differed in two things at once. The fixed-cell ROI-leads
+  configuration was added after that run to separate them. The other configurations gave
+  identical numbers in both runs (the code is deterministic).
+- **Not done:**
+  - Find why Tracker2D loses the person.
+  - Put a box-fitted PDAF window in the C chain.
